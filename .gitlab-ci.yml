@@ -25,25 +25,11 @@ cache:
 
 before_script:
   - python -V  # Print out python version for debugging
-
-stages:
-  - test
-  - build
-  - upload
-
-test:
-  stage: test
+  
+run:
   script:
     - python -m unittest
-
-build:
-  stage: build
-  script:
     - python setup.py sdist bdist_wheel
-
-upload:
-  stage: upload
-  script:
     - pip install twine
     - export TWINE_PASSWORD=${CI_JOB_TOKEN} 
     - export TWINE_USERNAME=gitlab-ci-token 
