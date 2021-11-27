@@ -25,9 +25,6 @@ cache:
 
 before_script:
   - python -V  # Print out python version for debugging
-  - pip install virtualenv
-  - virtualenv venv
-  - source venv/bin/activate
 
 stages:
   - test
@@ -35,14 +32,17 @@ stages:
   - upload
 
 test:
+  stage: test
   script:
     - python -m unittest
 
 build:
+  stage: build
   script:
     - python setup.py sdist bdist_wheel
 
 upload:
+  stage: upload
   script:
     - pip install twine
     - export TWINE_PASSWORD=${CI_JOB_TOKEN} 
