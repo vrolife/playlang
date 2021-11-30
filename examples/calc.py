@@ -1,5 +1,10 @@
 import playlang as pl
 
+class MismatchError(Exception):
+    @staticmethod
+    def throw(*args):
+        raise MismatchError(*args)
+
 syntax = pl.Syntax()
 
 NUMBER = syntax.token('NUMBER')
@@ -71,7 +76,7 @@ tokenizer = pl.Tokenizer([
     (LPAR, r'\('),
     (RPAR, r'\)'),
     ("WHITE", r'\s+'),
-    ("MISMATCH", r'.', lambda loc, text: pl.throw(pl.MismatchError(loc, text)))
+    ("MISMATCH", r'.', lambda loc, text: MismatchError.throw(loc, text))
 ], default_action=lambda loc, text: loc.step(len(text)))
 
 # while True:
@@ -82,11 +87,11 @@ tokenizer = pl.Tokenizer([
 #         print(e)
 #         pass
 
-result = pl.parse(states, tokenizer.scan_string('a=b=3'))
+result = pl.parse(states, tokenizer('a=b=3'))
 print(f'={result}')
 
-result = pl.parse(states, tokenizer.scan_string('2+3+4'))
+result = pl.parse(states, tokenizer('2+3+4'))
 print(f'={result}')
 
-result = pl.parse(states, tokenizer.scan_string('2+3*4'))
+result = pl.parse(states, tokenizer('2+3*4'))
 print(f'={result}')

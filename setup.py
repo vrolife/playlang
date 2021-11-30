@@ -2,11 +2,11 @@ import setuptools
 
 setuptools.setup(
     name='playlang',
-    version='2.0',
+    version='2.1',
     description='playlang',
     author='Pom',
-    author_email='pom@laputa.lan',
-    url='https://git.laputa.lan/pom/playlang',
+    author_email='pom@vro.life',
+    url='https://git.vro.life/pom/playlang',
     packages=['playlang'],
     python_requires=">=3.6",
 )

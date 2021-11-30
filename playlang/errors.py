@@ -1,9 +1,3 @@
-
-
-class MismatchError(Exception):
-    pass
-
-
 class ConflictError(Exception):
     pass
 

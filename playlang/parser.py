@@ -1,120 +1,5 @@
-import os
-import inspect
-
 from playlang.errors import *
-from playlang.tokenizer import *
-
-
-class Precedence:
-    ASSOC_SHIFT = 0
-    ASSOC_LEFT = 1
-    ASSOC_RIGHT = 2
-    ASSOC_NONE = 3
-
-    def __init__(self, precedence, assoc=ASSOC_SHIFT):
-        self._precedence = precedence
-        self._associative = assoc
-
-    def __repr__(self):
-        assoc = ['Shift', 'Left', 'Right', 'None'][self._associative]
-        return f'Precedence({self._precedence}, {assoc})'
-
-    def __gt__(self, other):
-        return self._precedence.__gt__(other._precedence)
-
-    def __ge__(self, other):
-        return self._precedence.__ge__(other._precedence)
-
-    def __lt__(self, other):
-        return self._precedence.__lt__(other._precedence)
-
-    def __le__(self, other):
-        return self._precedence.__le__(other._precedence)
-
-    @property
-    def precedence(self):
-        return self._precedence
-
-
-class Rule:
-    def __init__(self, symbol, action, rule, precedence):
-        self.symbol = symbol
-        self.action = action
-        self._rule = rule
-        self.precedence = precedence
-        self._rule_count = len(rule)
-
-        if action is not None:
-            param_num = len(inspect.signature(action).parameters)
-            if param_num == self._rule_count:
-                self._pass_context = False
-            elif param_num == (self._rule_count + 1):
-                self._pass_context = True
-            else:
-                raise TypeError(
-                    f'{self.__repr__()} require {self._rule_count} or {self._rule_count + 1} parameters')
-
-    def __len__(self):
-        return self._rule_count
-
-    def __repr__(self):
-        detail = ''
-        try:
-            line_number = inspect.getsourcelines(self.action)[1]
-            file = os.path.basename(inspect.getsourcefile(self.action))
-            detail = f':{file}:{line_number}'
-        except:
-            pass
-        return f'Rule<{self.symbol}{detail}>[{self._rule}]'
-
-    def __call__(self, stack, context=None):
-        if self.action is not None:
-            args = []
-            if self._pass_context:
-                args.append(context)
-
-            for tv in stack.consume(self._rule_count):
-                args.append(tv.value)
-            value = self.action(*args)
-        else:
-            stack.consume(self._rule_count)
-            value = None
-
-        stack.commit(TokenValue(self.symbol, value))
-        return self._rule_count
-
-    def __iter__(self):
-        return self._rule.__iter__()
-
-
-class Symbol:
-    def __init__(self, name):
-        self.name = name
-        self._rules = []
-
-    def __repr__(self):
-        return self.name
-
-    @property
-    def rules(self):
-        return self._rules
-
-    def add(self, *rule, action=None, precedence=None):
-        if len(rule) > 0 and isinstance(rule[0], (list, tuple)):
-            rule = rule[0]
-
-        if isinstance(precedence, Token):
-            precedence = precedence.precedence
-        elif precedence is None:
-            precedence = Precedence(0)
-            for t in rule:
-                if isinstance(t, Token):
-                    precedence = t.precedence
-
-        assert isinstance(precedence, Precedence)
-
-        rule = Rule(self, action, rule, precedence)
-        self._rules.append(rule)
+from playlang.objects import *
 
 
 # Support modify during iteration
@@ -236,7 +121,7 @@ class Syntax:
         start = Symbol(name='$$START$$')
         start.add([symbol, self.EOF], action=reduce)
 
-        root_state = self._generate(start)
+        root_state = self._generate_from(start)
 
         self._merge(root_state)
 
@@ -244,7 +129,7 @@ class Syntax:
         setattr(root_state, 'start', start)
         return root_state
 
-    def _generate(self, start):
+    def _generate_from(self, start):
         state = self._generated_states.get(start)
         if state is None:
             state = State()
@@ -258,11 +143,11 @@ class Syntax:
         while len(rules) > 0:
             rule = rules.pop()
             iter = enumerate(rule)
-            self.gen(start, state, rule, iter)
+            self._generate_for_symbol(start, state, rule, iter)
 
         return state
 
-    def gen(self, symbol, state, rule, iter):
+    def _generate_for_symbol(self, symbol, state, rule, iter):
         try:
             index, element = iter.__next__()
 
@@ -279,10 +164,10 @@ class Syntax:
                     next_state.bind_rule = rule
 
             # try next
-            self.gen(symbol, next_state, rule, iter)
+            self._generate_for_symbol(symbol, next_state, rule, iter)
 
             if isinstance(element, Symbol):
-                self._generate(element)
+                self._generate_from(element)
         except StopIteration:
             state.reduce_rule = rule
 
@@ -469,7 +354,3 @@ def parse(states, reader, context=None):
     state_stack = StateStack(states)
     _parse(token_stack, state_stack, context=context)
     return token_stack.pop().value
-
-
-def throw(e):
-    raise e

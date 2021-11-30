@@ -1,61 +1,9 @@
 import re
-import io
+from playlang.objects import Location, Token, TokenValue
 
 
 class SkipError(Exception):
     pass
-
-
-class Location:
-    def __init__(self, line_num=0, column=0, filename=None):
-        self._filename = filename
-        self._line_num = line_num
-        self._column = column
-
-    def lines(self, n):
-        self._line_num += n
-        self._column = 0
-        return None
-
-    def step(self, n):
-        self._column += n
-        return None
-
-    def copy(self):
-        return Location(self._line_num, self._column, self._filename)
-
-    def __repr__(self):
-        return f'{self._filename}:{self._line_num}+{self._column}'
-
-
-class Token:
-    def __init__(self, name, precedence, ignorable=False):
-        self.name = name
-        self.precedence = precedence
-        self.ignorable = ignorable
-
-    def __repr__(self):
-        return self.name
-
-
-class TokenValue:
-    def __init__(self, token, value, location=None):
-        self.token = token
-        self.value = value
-        self.location = location
-
-    def __repr__(self):
-        buf = io.StringIO()
-        buf.write(self.token.__repr__())
-
-        if self.location is not None:
-            buf.write(':')
-            buf.write(self.location.__repr__())
-
-        buf.write('=')
-        buf.write(str(self.value))
-
-        return buf.getvalue()
 
 
 class Tokenizer:
@@ -113,7 +61,7 @@ class Tokenizer:
         self._makers[name] = make_token
         return name, regex
 
-    def scan_string(self, string, filename='<memory>', raise_eof=True):
+    def __call__(self, string, filename='<memory>', raise_eof=True):
         location = Location(filename=filename)
         for m in self._regex.finditer(string):
             try:

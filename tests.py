@@ -1,9 +1,128 @@
 import unittest
-import playlang as pl
+from playlang import *
+
+
+class MismatchError(Exception):
+    @staticmethod
+    def throw(*args):
+        raise MismatchError(*args)
+
+
+class CompilerCalc2(metaclass=Compiler):
+    NUMBER: Token[int] = r'\d+'
+    NAME: Token[str] = r'\w+'
+    NEWLINE: Token[lambda loc, text: loc.lines(len(text))] = r'\n+'
+
+    Right: Precedence
+    EQUALS: Token = r'='
+
+    Left: Precedence
+    PLUS: Token[str] = r'\+'
+    MINUS: Token[str] = r'-'
+
+    Left: Precedence
+    TIMES: Token[str] = r'\*'
+    DIVIDE: Token[str] = r'/'
+
+    Increase: Precedence
+    LPAR: Token = r'\('
+    RPAR: Token = r'\)'
+    UMINUS: Token = r'-'
+
+    WHITE: Token = r'\s+'
+    MISMATCH: Token[lambda loc, text: MismatchError.throw(loc, text)] = r'.'
+
+    @Rule(NUMBER)
+    def EXPR(self, value):
+        self._steps.append(value)
+        return value
+
+    @Rule(NAME)
+    def EXPR(self, name):
+        self._steps.append(name)
+        return self._names[name]
+
+    @Rule(MINUS, EXPR, precedence=UMINUS)
+    def EXPR(self, l, expr):
+        self._steps.append(f'-{expr}')
+        return -expr
+
+    @Rule(LPAR, EXPR, RPAR)
+    def EXPR(self, l, expr, r):
+        self._steps.append(f'({expr})')
+        return expr
+
+    @Rule(EXPR, PLUS, EXPR)
+    @Rule(EXPR, MINUS, EXPR)
+    @Rule(EXPR, TIMES, EXPR)
+    @Rule(EXPR, DIVIDE, EXPR)
+    def EXPR(self, l_expr, opr, r_expr):
+        code = f'{l_expr}{opr}{r_expr}'
+        self._steps.append(code)
+        return eval(code)
+
+    @Rule(NAME, EQUALS, EXPR)
+    def EXPR(self, name, _, expr):
+        self._steps.append(f'{name}={expr}')
+        self._names[name] = expr
+        return expr
+
+    START = EXPR
+
+    def __init__(self):
+        self._names = {}
+        self._steps = []
+
+        def build_tokenizer(patterns):
+            return Tokenizer(patterns, default_action=lambda loc, text: loc.step(len(text)))
+
+        self._compile = Compiler.build(self, build_tokenizer)
+
+    def compile_string(self, string):
+        return self._compile(string, context=self)
+
+
+class TestCalc2(unittest.TestCase):
+    def test_right_associativity(self):
+        compiler = CompilerCalc2()
+        result = compiler.compile_string('a=b=3')
+        self.assertEqual(result, 3)
+        self.assertListEqual(compiler._steps, [3, 'b=3', 'a=3'])
+
+    def test_left_associativity(self):
+        compiler = CompilerCalc2()
+        result = compiler.compile_string('2+3+4')
+        self.assertEqual(result, 9)
+        self.assertListEqual(compiler._steps, [2, 3, '2+3', 4, '5+4'])
+
+    def test_precedence(self):
+        compiler = CompilerCalc2()
+        result = compiler.compile_string('2+3*4')
+        self.assertEqual(result, 14)
+        self.assertListEqual(compiler._steps, [2, 3, 4, '3*4', '2+12'])
+
+    def test_group(self):
+        compiler = CompilerCalc2()
+        result = compiler.compile_string('2+(3+4)')
+        self.assertEqual(result, 9)
+        self.assertListEqual(compiler._steps, [2, 3, 4, '3+4', '(7)', '2+7'])
+
+    def test_minus(self):
+        compiler = CompilerCalc2()
+        result = compiler.compile_string('-2*3')
+        self.assertEqual(result, -6)
+        self.assertListEqual(compiler._steps, [2, '-2', 3, '-2*3'])
+
+    def test_assign(self):
+        compiler = CompilerCalc2()
+        result = compiler.compile_string('x=1+2*-3')
+        self.assertEqual(result, -5)
+        self.assertEqual(compiler._names['x'], -5)
+        self.assertListEqual(compiler._steps, [1, 2, 3, '-3', '2*-3', '1+-6', 'x=-5'])
 
 
 class CompilerCalc:
-    _syntax = pl.Syntax()
+    _syntax = Syntax()
 
     NUMBER = _syntax.token('NUMBER')
     NAME = _syntax.token('NAME')
@@ -21,7 +140,7 @@ class CompilerCalc:
     RPAR = _syntax.token('RPAR')
     UMINUS = _syntax.token('UMINUS')
 
-    _tokenizer = pl.Tokenizer([
+    _tokenizer = Tokenizer([
         (NUMBER, r'\d+', int),
         (NAME, r'\w+', str),
         (NEWLINE, r'\n+', lambda loc, text: loc.lines(len(text))),
@@ -33,7 +152,7 @@ class CompilerCalc:
         (LPAR, r'\('),
         (RPAR, r'\)'),
         ("WHITE", r'\s+'),
-        ("MISMATCH", r'.', lambda loc, text: pl.throw(pl.MismatchError(loc, text)))
+        ("MISMATCH", r'.', lambda loc, text: MismatchError.throw(loc, text))
     ], default_action=lambda loc, text: loc.step(len(text)))
 
     @_syntax(NUMBER)
@@ -78,7 +197,7 @@ class CompilerCalc:
         self._steps = []
 
     def compile_string(self, string):
-        return pl.parse(self._states, self._tokenizer.scan_string(string), context=self)
+        return parse(self._states, self._tokenizer(string), context=self)
 
 
 class TestCalc(unittest.TestCase):
@@ -122,7 +241,7 @@ class TestCalc(unittest.TestCase):
 
 class TestConflict(unittest.TestCase):
     def test_reduce_reduce(self):
-        syntax = pl.Syntax()
+        syntax = Syntax()
         A = syntax.token('A')
         B = syntax.token('B')
 
@@ -133,10 +252,10 @@ class TestConflict(unittest.TestCase):
         EXPR.add(LIST)
         EXPR.add(A, B)
 
-        self.assertRaises(pl.ConflictReduceReduceError, lambda: syntax.generate(EXPR))
+        self.assertRaises(ConflictReduceReduceError, lambda: syntax.generate(EXPR))
 
     def test_shift_reduce(self):
-        syntax = pl.Syntax(auto_shift=False)
+        syntax = Syntax(auto_shift=False)
 
         A = syntax.token('A')
         B = syntax.token('B')
@@ -148,19 +267,19 @@ class TestConflict(unittest.TestCase):
         EXPR.add(LIST)
         EXPR.add(A)
 
-        self.assertRaises(pl.ConflictShiftReduceError, lambda: syntax.generate(EXPR))
+        self.assertRaises(ConflictShiftReduceError, lambda: syntax.generate(EXPR))
 
 
 class CompilerList:
-    _syntax = pl.Syntax()
+    _syntax = Syntax()
 
     DIGITS = _syntax.token('DIGITS')
 
-    _tokenizer = pl.Tokenizer([
+    _tokenizer = Tokenizer([
         (DIGITS, r'\d', str),
         ("NEWLINE", r'\n+', lambda loc, text: loc.lines(len(text))),
         ("WHITE", r'\s+'),
-        ("MISMATCH", r'.', lambda loc, text: pl.throw(pl.MismatchError(loc, text)))
+        ("MISMATCH", r'.', lambda loc, text: MismatchError.throw(loc, text))
     ], default_action=lambda loc, text: loc.step(len(text)))
 
     @_syntax(DIGITS)
@@ -183,7 +302,7 @@ class CompilerList:
     _states = _syntax.generate(EXPR)
 
     def compile_string(self, string):
-        return pl.parse(self._states, self._tokenizer.scan_string(string), context=self)
+        return parse(self._states, self._tokenizer(string), context=self)
 
 
 class TestList(unittest.TestCase):
@@ -200,24 +319,24 @@ class TestList(unittest.TestCase):
 
 class TestTokenizer(unittest.TestCase):
     def test_mismatch(self):
-        _syntax = pl.Syntax()
+        _syntax = Syntax()
 
         DIGITS = _syntax.token('DIGITS')
 
-        _tokenizer = pl.Tokenizer([
+        _tokenizer = Tokenizer([
             (DIGITS, r'\d', str),
             ("NEWLINE", r'\n+', lambda loc, text: loc.lines(len(text))),
             ("WHITE", r'\s+'),
-            ("MISMATCH", r'.', lambda loc, text: pl.throw(pl.MismatchError(loc, text)))
+            ("MISMATCH", r'.', lambda loc, text: MismatchError.throw(loc, text))
         ], default_action=lambda loc, text: loc.step(len(text)))
 
         def scan(s):
-            return list(map(lambda v: v.value, _tokenizer.scan_string(s, raise_eof=False)))
+            return list(map(lambda v: v.value, _tokenizer(s, raise_eof=False)))
 
         self.assertListEqual(scan('123'), ['1', '2', '3'])
         self.assertListEqual(scan('12\n3'), ['1', '2', '3'])
         self.assertListEqual(scan('12 3'), ['1', '2', '3'])
 
-        self.assertRaises(pl.MismatchError, lambda *args: scan('x'))
-        self.assertRaises(pl.MismatchError, lambda *args: scan('x1'))
-        self.assertRaises(pl.MismatchError, lambda *args: scan('1x'))
+        self.assertRaises(MismatchError, lambda *args: scan('x'))
+        self.assertRaises(MismatchError, lambda *args: scan('x1'))
+        self.assertRaises(MismatchError, lambda *args: scan('1x'))
