@@ -1,7 +1,6 @@
 import io
 import os
 import inspect
-from dataclasses import dataclass
 
 
 class Precedence:
@@ -70,9 +69,9 @@ class TokenValue:
         return buf.getvalue()
 
 
-@dataclass
 class TokenType:
-    type: callable
+    def __init__(self, type):
+        self.type = type
 
 
 class Location:
