@@ -1,6 +1,5 @@
 from playlang.objects import *
 from playlang.parser import parse, Syntax
-from playlang.tokenizer import Tokenizer
 
 
 class CompilerAnnotations(dict):
@@ -13,7 +12,7 @@ class CompilerAnnotations(dict):
     def __setitem__(self, key, value):
         if isinstance(value, (MetaToken, TokenType)):
             pattern = self._dic.get(key)
-            token = self._syntax.token(key)
+            token = self._syntax.token(key, ignorable=value is TokenIgnorable)
 
             self._dic[key] = token
 

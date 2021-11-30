@@ -29,7 +29,7 @@ class CompilerCalc2(metaclass=Compiler):
     RPAR: Token = r'\)'
     UMINUS: Token = r'-'
 
-    WHITE: Token = r'\s+'
+    WHITE: TokenIgnorable = r'\s+'
     MISMATCH: Token[lambda loc, text: MismatchError.throw(loc, text)] = r'.'
 
     @Rule(NUMBER)
@@ -119,6 +119,12 @@ class TestCalc2(unittest.TestCase):
         self.assertEqual(result, -5)
         self.assertEqual(compiler._names['x'], -5)
         self.assertListEqual(compiler._steps, [1, 2, 3, '-3', '2*-3', '1+-6', 'x=-5'])
+
+    def test_ignorable_token(self):
+        compiler = CompilerCalc2()
+        result = compiler.compile_string('1 + 2')
+        self.assertEqual(result, 3)
+        self.assertListEqual(compiler._steps, [1, 2, '1+2'])
 
 
 class CompilerCalc:

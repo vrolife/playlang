@@ -39,6 +39,10 @@ class MetaToken(type):
         return TokenType(type)
 
 
+class TokenIgnorable(metaclass=MetaToken):
+    pass
+
+
 class Token(metaclass=MetaToken):
     def __init__(self, name, precedence, ignorable=False):
         self.name = name
