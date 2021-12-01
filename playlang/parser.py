@@ -334,17 +334,17 @@ def _parse(token_stack, state_stack, context):
             state_stack.push(next_state)
             lookahead = token_stack.peek()
         else:
+            if isinstance(lookahead.token, Token) and lookahead.token.ignorable:
+                token_stack.discard()
+                lookahead = token_stack.peek()
+                continue
+
             if current_state.reduce_rule is not None:
                 # reduce
                 n = current_state.reduce_rule(token_stack, context=context)
                 state_stack.pop(n)
                 lookahead = token_stack.top()
             else:
-                if isinstance(lookahead.token, Token) and lookahead.token.ignorable:
-                    token_stack.discard()
-                    lookahead = token_stack.peek()
-                    continue
-
                 raise SyntaxError(
                     f'unexpected token {lookahead}')
 

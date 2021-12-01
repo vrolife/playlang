@@ -124,9 +124,9 @@ class TestCalc2(unittest.TestCase):
 
     def test_ignorable_token(self):
         compiler = CompilerCalc2()
-        result = compiler.compile_string('1 + 2')
-        self.assertEqual(result, 3)
-        self.assertListEqual(compiler._steps, [1, 2, '1+2'])
+        result = compiler.compile_string('2+3 *4+5')
+        self.assertEqual(result, 19)
+        self.assertListEqual(compiler._steps, [2, 3, 4, '3*4', '2+12', 5, '14+5'])
 
 
 class CompilerCalc:
