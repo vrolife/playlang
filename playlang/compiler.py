@@ -33,6 +33,12 @@ class CompilerAnnotations(dict):
             else:
                 raise TypeError('unknown associativity')
             dict.__setitem__(self, key, self._syntax._current_precedence)
+        elif value is Start:
+            dict.__setitem__(self, '__start__', key)
+            dict.__setitem__(self, key, value)
+        elif value is TokenList:
+            dict.__setitem__(self, '__token_list__', key)
+            dict.__setitem__(self, key, value)
         else:
             dict.__setitem__(self, key, value)
 
@@ -57,10 +63,35 @@ class CompilerDict(dict):
 
 class Compiler(type):
     def __new__(cls, name, bases, dic):
-        if 'START' not in dic:
-            raise TypeError('missing "START" symbol')
+        annotations = dic['__annotations__']
+        syntax = dic['__syntax__']
+        start_symbol_name = annotations.get('__start__')
 
-        dic['__states__'] = dic['__syntax__'].generate(dic['START'])
+        if start_symbol_name is None:
+            raise TypeError('missing start symbol')
+
+        if start_symbol_name not in dic:
+            raise TypeError(f'start symbol "{start_symbol_name}" annotated but unassigned')
+
+        start_symbol = dic[start_symbol_name]
+
+        if not isinstance(start_symbol, Symbol):
+            raise TypeError(f'invalid type of start symbol "{start_symbol_name}"')
+
+        dic['__states__'] = syntax.generate(start_symbol)
+
+        token_list_name = annotations.get('__token_list__')
+        if token_list_name is not None:
+            token_list = dic[token_list_name]
+            if not isinstance(token_list, (tuple, list)):
+                raise TypeError('a class member annotated as TokenList must be a tuple or list')
+
+            # sort __patterns__
+            order = {}
+            for idx, token in enumerate(token_list):
+                order[token] = idx
+
+            dic['__patterns__'].sort(key=lambda v: order.get(v[0], 0xffff))
 
         return type.__new__(cls, name, bases, dic)
 
@@ -78,3 +109,11 @@ class Compiler(type):
             return parse(states, tokenizer(string), context=context)
 
         return compile
+
+
+class TokenList:
+    pass
+
+
+class Start:
+    pass

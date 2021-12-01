@@ -32,6 +32,8 @@ class CompilerCalc2(metaclass=Compiler):
     WHITE: TokenIgnorable = r'\s+'
     MISMATCH: Token[lambda loc, text: MismatchError.throw(loc, text)] = r'.'
 
+    TOKENS: TokenList = (NUMBER, NAME, EQUALS, PLUS, MINUS, TIMES, DIVIDE, LPAR, RPAR, NEWLINE, WHITE, MISMATCH)
+
     @Rule(NUMBER)
     def EXPR(self, value):
         self._steps.append(value)
@@ -67,7 +69,7 @@ class CompilerCalc2(metaclass=Compiler):
         self._names[name] = expr
         return expr
 
-    START = EXPR
+    START: Start = EXPR
 
     def __init__(self):
         self._names = {}
@@ -346,3 +348,18 @@ class TestTokenizer(unittest.TestCase):
         self.assertRaises(MismatchError, lambda *args: scan('x'))
         self.assertRaises(MismatchError, lambda *args: scan('x1'))
         self.assertRaises(MismatchError, lambda *args: scan('1x'))
+
+    def test_calc2(self):
+        compiler = CompilerCalc2()
+        patterns = getattr(compiler, '__patterns__')
+
+        tokenizer = Tokenizer(patterns, default_action=lambda loc, text: loc.step(len(text)))
+
+        tokens = []
+        try:
+            for tv in tokenizer("a=1+1"):
+                tokens.append(tv.token)
+        except:
+            pass
+
+        self.assertListEqual(tokens, [compiler.NAME, compiler.EQUALS, compiler.NUMBER, compiler.PLUS, compiler.NUMBER])

@@ -158,7 +158,7 @@ class Symbol:
         self._rules = []
 
     def __repr__(self):
-        return f'{self.name}|{super().__repr__()}|'
+        return self.name
 
     @property
     def rules(self):
