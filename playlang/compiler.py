@@ -10,18 +10,22 @@ class CompilerAnnotations(dict):
         self._patterns = patterns
 
     def __setitem__(self, key, value):
-        if isinstance(value, (MetaToken, TokenType)):
+        if isinstance(value, TokenInfo) or value is Token:
             pattern = self._dic.get(key)
-            token = self._syntax.token(key, ignorable=value is TokenIgnorable)
+
+            info = value if isinstance(value, TokenInfo) else TokenInfo()
+
+            if info.discard:
+                token = key
+            else:
+                token = self._syntax.token(key, ignorable=info.ignorable)
 
             self._dic[key] = token
 
-            token_type = None
-
-            if isinstance(value, TokenType):
-                token_type = value.type
+            token_type = info.type
 
             self._patterns.append((token, pattern, token_type))
+
         elif value is Precedence:
             key = key.upper()
             if key.endswith('RIGHT'):
@@ -33,12 +37,15 @@ class CompilerAnnotations(dict):
             else:
                 raise TypeError('unknown associativity')
             dict.__setitem__(self, key, self._syntax._current_precedence)
+
         elif value is Start:
             dict.__setitem__(self, '__start__', key)
             dict.__setitem__(self, key, value)
+
         elif value is TokenList:
             dict.__setitem__(self, '__token_list__', key)
             dict.__setitem__(self, key, value)
+
         else:
             dict.__setitem__(self, key, value)
 

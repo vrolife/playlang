@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 import inspect
 
@@ -34,13 +35,43 @@ class Precedence:
         return self._precedence
 
 
-class MetaToken(type):
-    def __getitem__(self, type):
-        return TokenType(type)
-
-
-class TokenIgnorable(metaclass=MetaToken):
+class TokenFlag:
     pass
+
+
+class Ignorable(TokenFlag):
+    pass
+
+
+class Discard(TokenFlag):
+    pass
+
+
+class TokenInfo:
+    def __init__(self):
+        self.discard = False
+        self.ignorable = False
+        self.type = None
+
+    def set(self, other):
+        if other is Discard:
+            self.discard = True
+        elif other is Ignorable:
+            self.ignorable = True
+        else:
+            self.type = other
+        return self
+
+
+class MetaToken(type):
+    def __getitem__(self, item):
+        ti = TokenInfo()
+        if isinstance(item, (tuple, list)):
+            for flag in item:
+                ti.set(flag)
+        else:
+            ti.set(item)
+        return ti
 
 
 class Token(metaclass=MetaToken):
@@ -71,11 +102,6 @@ class TokenValue:
         buf.write(str(self.value))
 
         return buf.getvalue()
-
-
-class TokenType:
-    def __init__(self, type):
-        self.type = type
 
 
 class Location:

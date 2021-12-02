@@ -1,5 +1,8 @@
+import logging
 import unittest
 from playlang import *
+
+logging.basicConfig(level='DEBUG')
 
 
 class MismatchError(Exception):
@@ -29,8 +32,8 @@ class CompilerCalc2(metaclass=Compiler):
     RPAR: Token = r'\)'
     UMINUS: Token = r'-'
 
-    WHITE: TokenIgnorable = r'\s+'
-    MISMATCH: Token[lambda loc, text: MismatchError.throw(loc, text)] = r'.'
+    WHITE: Token[Discard] = r'\s+'
+    MISMATCH: Token[Discard, lambda loc, text: MismatchError.throw(loc, text)] = r'.'
 
     TOKENS: TokenList = (NUMBER, NAME, EQUALS, PLUS, MINUS, TIMES, DIVIDE, LPAR, RPAR, NEWLINE, WHITE, MISMATCH)
 

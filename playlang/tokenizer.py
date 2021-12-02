@@ -2,7 +2,7 @@ import re
 from playlang.objects import Location, Token, TokenValue
 
 
-class SkipError(Exception):
+class DiscardError(Exception):
     pass
 
 
@@ -54,7 +54,7 @@ class Tokenizer:
                 raise TypeError(action)
 
             if isinstance(token, str):
-                raise SkipError(loc, text)
+                raise DiscardError(loc, text)
 
             return TokenValue(token, value, loc.copy())
 
@@ -66,7 +66,7 @@ class Tokenizer:
         for m in self._regex.finditer(string):
             try:
                 yield self._makers[m.lastgroup](location, m.group())
-            except SkipError:
+            except DiscardError:
                 continue
 
         if raise_eof:
