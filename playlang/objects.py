@@ -174,6 +174,8 @@ class Symbol:
             precedence = Precedence(0)
             for t in rule:
                 if isinstance(t, Token):
+                    if precedence > t.precedence:
+                        logging.debug(f'rule bind to lower precedence. {rule}')
                     precedence = t.precedence
 
         assert isinstance(precedence, Precedence)
