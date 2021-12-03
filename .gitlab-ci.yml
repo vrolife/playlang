@@ -14,9 +14,9 @@ before_script:
 run:
   script:
     - python -m unittest
-    - python setup.py sdist bdist_wheel
+    - python setup.py bdist_wheel --build-number ${CI_PIPELINE_IID}
     - pip install twine
     - export TWINE_PASSWORD=${CI_JOB_TOKEN} 
     - export TWINE_USERNAME=gitlab-ci-token 
-    - python -m twine upload --repository-url https://pypi.vro.life dist/*
+    - python -m twine upload --verbose --repository-url https://pypi.vro.life dist/*
     
