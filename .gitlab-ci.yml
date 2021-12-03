@@ -18,5 +18,5 @@ run:
     - pip install twine
     - export TWINE_PASSWORD=${CI_JOB_TOKEN} 
     - export TWINE_USERNAME=gitlab-ci-token 
-    - python -m twine upload --repository-url https://git.vro.life/pkg/pypi dist/*
+    - python -m twine upload --repository-url https://pypi.vro.life dist/*
     
