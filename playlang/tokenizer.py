@@ -18,7 +18,7 @@ class Tokenizer:
         self._regex = re.compile(
             '|'.join([f'(?P<%s>%s)' % pair for pair in pairs]))
 
-    def _convert(self, token, regex, action=None):
+    def _convert(self, token, regex, action, extra_info=None):
         if isinstance(token, str):
             name = token
             if action is not None and (not callable(action) or isinstance(action, type)):

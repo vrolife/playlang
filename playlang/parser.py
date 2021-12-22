@@ -62,7 +62,7 @@ class Syntax:
         self._pending_rules = {}
         self._merged_states = set()
         self._current_precedence = Precedence(0)
-        self.EOF = Token('EOF', self._current_precedence)
+        self.__EOF__ = Token('__EOF__', self._current_precedence)
 
     def __call__(self, *rule, precedence=None, name=None):
         def dec(action):
@@ -118,15 +118,15 @@ class Syntax:
         def reduce(v, _):
             return v
 
-        start = Symbol(name='$$START$$')
-        start.add([symbol, self.EOF], action=reduce)
+        start = Symbol(name='__START__')
+        start.add([symbol, self.__EOF__], action=reduce)
 
         root_state = self._generate_from(start)
 
         self._merge(root_state)
 
-        setattr(root_state, 'eof', self.EOF)
-        setattr(root_state, 'start', start)
+        setattr(root_state, '__EOF__', self.__EOF__)
+        setattr(root_state, '__START__', start)
         return root_state
 
     def _generate_from(self, start):
@@ -242,9 +242,9 @@ class Syntax:
                 self._merge(next_state)
 
 
-class TokenStack:
-    def __init__(self, reader, start, eof):
-        self._reader = reader
+class TokenReader:
+    def __init__(self, tokenizer, start, eof):
+        self._tokenizer = tokenizer
         self._start = start
         self._eof = eof
         self._stack = []
@@ -255,7 +255,7 @@ class TokenStack:
 
     def _read(self):
         try:
-            return self._reader.__next__()
+            return self._tokenizer.__next__()
         except StopIteration:
             return TokenValue(self._eof, None)
         except EOFError as e:
@@ -321,36 +321,36 @@ class StateStack:
         self._stack.append(state)
 
 
-def _parse(token_stack, state_stack, context):
-    lookahead = token_stack.peek()
-    while not token_stack.done():
+def _parse(token_reader, state_stack, context):
+    lookahead = token_reader.peek()
+    while not token_reader.done():
         current_state = state_stack.top()
         next_state = current_state.get_next_state(lookahead.token)
 
         if next_state is not None:
             # shift
             if isinstance(lookahead.token, Token):
-                token_stack.read()
+                token_reader.read()
             state_stack.push(next_state)
-            lookahead = token_stack.peek()
+            lookahead = token_reader.peek()
         else:
             if isinstance(lookahead.token, Token) and lookahead.token.ignorable:
-                token_stack.discard()
-                lookahead = token_stack.peek()
+                token_reader.discard()
+                lookahead = token_reader.peek()
                 continue
 
             if current_state.reduce_rule is not None:
                 # reduce
-                n = current_state.reduce_rule(token_stack, context=context)
+                n = current_state.reduce_rule(token_reader, context=context)
                 state_stack.pop(n)
-                lookahead = token_stack.top()
+                lookahead = token_reader.top()
             else:
                 raise SyntaxError(
                     f'unexpected token {lookahead}')
 
 
-def parse(states, reader, context=None):
-    token_stack = TokenStack(reader, states.start, states.eof)
+def parse(states, tokenizer, context=None):
+    token_reader = TokenReader(tokenizer, states.__START__, states.__EOF__)
     state_stack = StateStack(states)
-    _parse(token_stack, state_stack, context=context)
-    return token_stack.pop().value
+    _parse(token_reader, state_stack, context=context)
+    return token_reader.pop().value

@@ -24,7 +24,7 @@ class CompilerAnnotations(dict):
 
             token_type = info.type
 
-            self._patterns.append((token, pattern, token_type))
+            self._patterns.append((token, pattern, token_type, info.extra_info))
 
         elif value is Precedence:
             key = key.upper()

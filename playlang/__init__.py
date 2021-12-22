@@ -1,5 +1,5 @@
 from playlang.errors import *
-from playlang.objects import Location, Token, Ignorable, Discard, Rule, Precedence
+from playlang.objects import Location, Token, Ignorable, Discard, Rule, Precedence, ExtraInfo
 from playlang.compiler import Compiler, Start, TokenList
 from playlang.tokenizer import Tokenizer
 from playlang.parser import Syntax, parse
@@ -14,9 +14,9 @@ __all__ = [
     'Ignorable',
     'Discard',
     'TokenList',
+    'ExtraInfo',
     'Tokenizer',
     'Rule',
-    'Syntax',
     'Compiler',
     'Precedence',
     'Start',

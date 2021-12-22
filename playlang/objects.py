@@ -52,15 +52,34 @@ class TokenInfo:
         self.discard = False
         self.ignorable = False
         self.type = None
+        self.extra_info = {}
 
     def set(self, other):
         if other is Discard:
             self.discard = True
         elif other is Ignorable:
             self.ignorable = True
+        elif isinstance(other, ExtraInfo):
+            self.extra_info = other
         else:
             self.type = other
         return self
+
+
+class ExtraInfo:
+    def __init__(self, *args, **kwargs):
+        self._args = args
+        self._kwargs = kwargs
+
+    def __call__(self, obj):
+        if isinstance(obj, Symbol):
+            for r in obj.rules:
+                r._extra_data.update(self._kwargs)
+            return obj
+        return obj
+
+    def get(self, key, default=None):
+        return self._kwargs.get(key, default)
 
 
 class MetaToken(type):
@@ -132,20 +151,24 @@ class SymbolRule:
         self.action = action
         self._rule = rule
         self.precedence = precedence
-        self._rule_count = len(rule)
+        self._param_count = len(rule)
+        self._extra_data = {}
 
         if action is not None:
             param_num = len(inspect.signature(action).parameters)
-            if param_num == self._rule_count:
+            if param_num == self._param_count:
                 self._pass_context = False
-            elif param_num == (self._rule_count + 1):
+            elif param_num == (self._param_count + 1):
                 self._pass_context = True
             else:
                 raise TypeError(
-                    f'{self.__repr__()} require {self._rule_count} or {self._rule_count + 1} parameters')
+                    f'{self.__repr__()} require {self._param_count} or {self._param_count + 1} parameters')
+
+    def __getitem__(self, item):
+        return self._extra_data[item]
 
     def __len__(self):
-        return self._rule_count
+        return self._param_count
 
     def __repr__(self):
         detail = ''
@@ -155,23 +178,23 @@ class SymbolRule:
             detail = f':{file}:{line_number}'
         except:
             pass
-        return f'Rule<{self.symbol}{detail}>[{self._rule}]'
+        return f'SymbolRule<{self.symbol}{detail}>[{self._rule}]'
 
-    def __call__(self, stack, context=None):
+    def __call__(self, token_reader, context=None):
         if self.action is not None:
             args = []
             if self._pass_context:
                 args.append(context)
 
-            for tv in stack.consume(self._rule_count):
+            for tv in token_reader.consume(self._param_count):
                 args.append(tv.value)
             value = self.action(*args)
         else:
-            stack.consume(self._rule_count)
+            token_reader.consume(self._param_count)
             value = None
 
-        stack.commit(TokenValue(self.symbol, value))
-        return self._rule_count
+        token_reader.commit(TokenValue(self.symbol, value))
+        return self._param_count
 
     def __iter__(self):
         return self._rule.__iter__()
