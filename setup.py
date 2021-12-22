@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name='playlang',
-    version='2.1',
+    version='2.2',
     description='playlang',
     author='Pom',
     author_email='pom@vro.life',

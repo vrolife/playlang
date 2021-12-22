@@ -9,11 +9,12 @@ cache:
 stages:
   - generate_javascript
   - test_javascript
-  - test_python_and_upload
+  - test_python
+  - upload
 
 generate_javascript:
   stage: generate_javascript
-  image: git.vro.life/vro/dependency_proxy/containers/python:3.6
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.6
   artifacts:
     paths:
       - .js
@@ -24,18 +25,25 @@ generate_javascript:
 
 test_javascript:
   stage: test_javascript
-  image: git.vro.life/vro/dependency_proxy/containers/node:14
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/node:14
   script:
     - (cd .js && node tests.mjs)
 
-test_python_and_upload:
-  stage: test_python_and_upload
-  image: git.vro.life/vro/dependency_proxy/containers/python:3.6
+test_python:
+  stage: test_python
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.6
   script:
     - python -V
     - python -m unittest tests.py
+
+upload:
+  stage: upload
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.6
+  script:
     - python setup.py bdist_wheel --build-number ${CI_PIPELINE_IID}
     - pip install twine
-    - export TWINE_PASSWORD=${CI_JOB_TOKEN} 
-    - export TWINE_USERNAME=gitlab-ci-token 
-    - python -m twine upload --repository-url https://pypi.vro.life dist/*
+    - export TWINE_PASSWORD=${CI_JOB_TOKEN}
+    - export TWINE_USERNAME=gitlab-ci-token
+    - python -m twine upload --repository-url ${PYPI_REPOSITORY} dist/*
+  only:
+    - master
