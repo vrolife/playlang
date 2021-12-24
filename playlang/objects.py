@@ -1,10 +1,10 @@
-import io
 import logging
 import os
 import inspect
+from playlang.api import *
 
 
-class Precedence:
+class _Precedence:
     ASSOC_SHIFT = 0
     ASSOC_LEFT = 1
     ASSOC_RIGHT = 2
@@ -35,65 +35,7 @@ class Precedence:
         return self._precedence
 
 
-class TokenFlag:
-    pass
-
-
-class Ignorable(TokenFlag):
-    pass
-
-
-class Discard(TokenFlag):
-    pass
-
-
-class TokenInfo:
-    def __init__(self):
-        self.discard = False
-        self.ignorable = False
-        self.type = None
-        self.extra_info = {}
-
-    def set(self, other):
-        if other is Discard:
-            self.discard = True
-        elif other is Ignorable:
-            self.ignorable = True
-        elif isinstance(other, ExtraInfo):
-            self.extra_info = other
-        else:
-            self.type = other
-        return self
-
-
-class ExtraInfo:
-    def __init__(self, *args, **kwargs):
-        self._args = args
-        self._kwargs = kwargs
-
-    def __call__(self, obj):
-        if isinstance(obj, Symbol):
-            for r in obj.rules:
-                r._extra_data.update(self._kwargs)
-            return obj
-        return obj
-
-    def get(self, key, default=None):
-        return self._kwargs.get(key, default)
-
-
-class MetaToken(type):
-    def __getitem__(self, item):
-        ti = TokenInfo()
-        if isinstance(item, (tuple, list)):
-            for flag in item:
-                ti.set(flag)
-        else:
-            ti.set(item)
-        return ti
-
-
-class Token(metaclass=MetaToken):
+class Terminal:
     def __init__(self, name, precedence, ignorable=False):
         self.name = name
         self.precedence = precedence
@@ -103,72 +45,31 @@ class Token(metaclass=MetaToken):
         return self.name
 
 
-class TokenValue:
-    def __init__(self, token, value, location=None):
-        self.token = token
-        self.value = value
-        self.location = location
-
-    def __repr__(self):
-        buf = io.StringIO()
-        buf.write(self.token.__repr__())
-
-        if self.location is not None:
-            buf.write(':')
-            buf.write(self.location.__repr__())
-
-        buf.write('=')
-        buf.write(str(self.value))
-
-        return buf.getvalue()
-
-
-class Location:
-    def __init__(self, line_num=0, column=0, filename=None):
-        self._filename = filename
-        self._line_num = line_num
-        self._column = column
-
-    def lines(self, n):
-        self._line_num += n
-        self._column = 0
-        return None
-
-    def step(self, n):
-        self._column += n
-        return None
-
-    def copy(self):
-        return Location(self._line_num, self._column, self._filename)
-
-    def __repr__(self):
-        return f'{self._filename}:{self._line_num}+{self._column}'
-
-
 class SymbolRule:
-    def __init__(self, symbol, action, rule, precedence):
+    def __init__(self, symbol, elements, action, precedence, extra_info=None):
         self.symbol = symbol
         self.action = action
-        self._rule = rule
+        self._elements = elements
         self.precedence = precedence
-        self._param_count = len(rule)
-        self._extra_data = {}
+        self._element_count = len(elements)
+
+        if extra_info is None:
+            self.extra_info = {}
+        else:
+            self.extra_info = extra_info
 
         if action is not None:
             param_num = len(inspect.signature(action).parameters)
-            if param_num == self._param_count:
+            if param_num == self._element_count:
                 self._pass_context = False
-            elif param_num == (self._param_count + 1):
+            elif param_num == (self._element_count + 1):
                 self._pass_context = True
             else:
                 raise TypeError(
-                    f'{self.__repr__()} require {self._param_count} or {self._param_count + 1} parameters')
-
-    def __getitem__(self, item):
-        return self._extra_data[item]
+                    f'{self.__repr__()} require {self._element_count} or {self._element_count + 1} parameters')
 
     def __len__(self):
-        return self._param_count
+        return self._element_count
 
     def __repr__(self):
         detail = ''
@@ -178,7 +79,7 @@ class SymbolRule:
             detail = f':{file}:{line_number}'
         except:
             pass
-        return f'SymbolRule<{self.symbol}{detail}>[{self._rule}]'
+        return f'Rule<{self.symbol}{detail}>[{self._elements}]'
 
     def __call__(self, token_reader, context=None):
         if self.action is not None:
@@ -186,18 +87,18 @@ class SymbolRule:
             if self._pass_context:
                 args.append(context)
 
-            for tv in token_reader.consume(self._param_count):
+            for tv in token_reader.consume(self._element_count):
                 args.append(tv.value)
             value = self.action(*args)
         else:
-            token_reader.consume(self._param_count)
+            token_reader.consume(self._element_count)
             value = None
 
         token_reader.commit(TokenValue(self.symbol, value))
-        return self._param_count
+        return self._element_count
 
     def __iter__(self):
-        return self._rule.__iter__()
+        return self._elements.__iter__()
 
 
 class Symbol:
@@ -213,46 +114,70 @@ class Symbol:
     def rules(self):
         return self._rules
 
-    def add(self, *rule, action=None, precedence=None):
+    def add_rule(self, *rule, action=None, precedence=None, extra_info=None):
         if len(rule) > 0 and isinstance(rule[0], (list, tuple)):
             rule = rule[0]
 
-        if isinstance(precedence, Token):
+        if isinstance(precedence, Terminal):
             precedence = precedence.precedence
         elif precedence is None:
-            precedence = Precedence(0)
+            precedence = _Precedence(0)
             for t in rule:
-                if isinstance(t, Token):
+                if isinstance(t, Terminal):
                     if precedence > t.precedence:
                         logging.debug(f'rule bind to lower precedence. {rule}')
                     precedence = t.precedence
 
-        assert isinstance(precedence, Precedence)
+        assert isinstance(precedence, _Precedence)
 
-        rule = SymbolRule(self, action, rule, precedence)
+        rule = SymbolRule(self, rule, action, precedence,
+                          extra_info=extra_info)
         self._rules.append(rule)
 
-    def merge(self, symbol):
-        for rule in symbol._rules:
-            rule.symbol = self
-            self._rules.append(rule)
+
+# Support append while iterating
+class StateIter:
+    def __init__(self, state):
+        self._state = state
+        self._index = -1
+
+    def __next__(self):
+        self._index += 1
+        if self._index >= len(self._state._tokens):
+            raise StopIteration()
+        t = self._state._tokens[self._index]
+        return t, self._state._branchs[t]
 
 
-class Rule:
-    def __init__(self, *symbols, precedence=None, name=None):
-        self._symbols = list(symbols)
-        self._precedence = precedence
-        self._name = name
+class State:
+    def __init__(self):
+        # the rule generate this state
+        self._bind_rule = None
 
-    def __call__(self, action):
-        if isinstance(action, Symbol):
-            symbol = action
-            symbol.add(self._symbols, action=symbol.rules[-1].action, precedence=self._precedence)
-        else:
-            if self._name is None:
-                self._name = getattr(action, '__name__', None)
-                if self._name is None:
-                    raise TypeError(f'unable to get the name of {action}')
-            symbol = Symbol(self._name)
-            symbol.add(self._symbols, action=action, precedence=self._precedence)
-        return symbol
+        # reduce in this rule. possible different to bind_rule after merged
+        self.reduce_rule = None
+
+        self._branchs = {}
+
+        # see StateIter
+        self._tokens = []
+
+    def __repr__(self):
+        return self._tokens.__repr__()
+
+    def __contains__(self, token):
+        return token in self._branchs
+
+    @property
+    def branchs(self):
+        return self._branchs
+
+    def set_branch(self, token, state):
+        self._tokens.append(token)
+        self._branchs[token] = state
+
+    def get_branch(self, token):
+        return self._branchs.get(token)
+
+    def __iter__(self):
+        return StateIter(self)

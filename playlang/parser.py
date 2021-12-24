@@ -1,245 +1,7 @@
-from playlang.errors import *
-from playlang.objects import *
-
-
-# Support modify during iteration
-class StateIter:
-    def __init__(self, state):
-        self._state = state
-        self._index = -1
-
-    def __next__(self):
-        self._index += 1
-        if self._index >= len(self._state._tokens):
-            raise StopIteration()
-        t = self._state._tokens[self._index]
-        return t, self._state._next_states[t]
-
-
-class State:
-    def __init__(self):
-        # the rule generate this state
-        self.bind_rule = None
-
-        self.bind_index = None
-
-        # reduce in this rule. possible different to bind_rule after merged
-        self.reduce_rule = None
-
-        self._next_states = {}
-
-        # see StateIter
-        self._tokens = []
-
-    def __contains__(self, token):
-        return token in self._next_states
-
-    @property
-    def next_states(self):
-        return self._next_states
-
-    @property
-    def tokens(self):
-        return list(self._next_states.keys())
-
-    def set_next_state(self, token, state):
-        self._tokens.append(token)
-        self._next_states[token] = state
-
-    def get_next_state(self, token):
-        return self._next_states.get(token)
-
-    def __iter__(self):
-        return StateIter(self)
-
-
-class Syntax:
-    def __init__(self, auto_shift=True):
-        self._auto_shift = auto_shift
-        self._defined_symbols = {}
-        self._defined_tokens = set()
-        self._generated_states = {}
-        self._pending_rules = {}
-        self._merged_states = set()
-        self._current_precedence = Precedence(0)
-        self.__EOF__ = Token('__EOF__', self._current_precedence)
-
-    def __call__(self, *rule, precedence=None, name=None):
-        def dec(action):
-            nonlocal name
-            if isinstance(action, Symbol):
-                symbol = action
-                action.add(
-                    rule, action=symbol.rules[-1].action, precedence=precedence)
-                return action
-            else:
-                if name is None:
-                    name = getattr(action, '__name__', None)
-                    if name is None:
-                        raise TypeError(f'unable to get the name of {action}')
-
-                symbol = self.symbol(name)
-                symbol.add(rule, action=action, precedence=precedence)
-            return symbol
-
-        return dec
-
-    def symbol(self, name) -> Symbol:
-        if name is None:
-            raise TypeError('symbol name must be not none')
-
-        symbol = self._defined_symbols.get(name)
-        if symbol is None:
-            symbol = Symbol(name)
-            self._defined_symbols[name] = symbol
-
-        return symbol
-
-    def precedence(self):
-        self._current_precedence = Precedence(self._current_precedence.precedence + 1)
-
-    def left(self):
-        self._current_precedence = Precedence(self._current_precedence.precedence + 1, Precedence.ASSOC_LEFT)
-
-    def right(self):
-        self._current_precedence = Precedence(self._current_precedence.precedence + 1, Precedence.ASSOC_RIGHT)
-
-    def nonassoc(self):
-        self._current_precedence = Precedence(self._current_precedence.precedence + 1, Precedence.ASSOC_NONE)
-
-    def token(self, name, **kwargs) -> Token:
-        if name in self._defined_tokens:
-            raise TypeError(f'duplicate token {name}')
-
-        self._defined_tokens.add(name)
-        return Token(name, precedence=self._current_precedence, **kwargs)
-
-    def generate(self, symbol):
-        def reduce(v, _):
-            return v
-
-        start = Symbol(name='__START__')
-        start.add([symbol, self.__EOF__], action=reduce)
-
-        root_state = self._generate_from(start)
-
-        self._merge(root_state)
-
-        setattr(root_state, '__EOF__', self.__EOF__)
-        setattr(root_state, '__START__', start)
-        return root_state
-
-    def _generate_from(self, start):
-        state = self._generated_states.get(start)
-        if state is None:
-            state = State()
-            self._generated_states[start] = state
-
-        rules = self._pending_rules.get(start)
-        if rules is None:
-            rules = start.rules[:]
-            self._pending_rules[start] = rules
-
-        while len(rules) > 0:
-            rule = rules.pop()
-            iter = enumerate(rule)
-            self._generate_for_symbol(start, state, rule, iter)
-
-        return state
-
-    def _generate_for_symbol(self, symbol, state, rule, iter):
-        try:
-            index, element = iter.__next__()
-
-            if element not in state:
-                next_state = State()
-                next_state.bind_rule = rule
-                next_state.bind_index = index
-                state.set_next_state(element, next_state)
-            else:
-                next_state = state.get_next_state(element)
-
-                # rebind
-                if rule.precedence > next_state.bind_rule.precedence:
-                    next_state.bind_rule = rule
-
-            # try next
-            self._generate_for_symbol(symbol, next_state, rule, iter)
-
-            if isinstance(element, Symbol):
-                self._generate_from(element)
-        except StopIteration:
-            state.reduce_rule = rule
-
-    def _should_reduce(self, reduce, shift):
-        if reduce._precedence > shift._precedence:
-            return True
-        if reduce._precedence < shift._precedence:
-            return False
-        else:  # ==
-            if reduce._associative != shift._associative:
-                raise ConflictShiftReduceError('shift/reduce conflict')
-
-            if reduce._associative == Precedence.ASSOC_LEFT:
-                return True
-
-            if not self._auto_shift:
-                raise ConflictShiftReduceError('shift/reduce conflict')
-
-            # shift default
-            return False
-
-    def _should_override(self, to, _from):
-        if to._precedence > _from._precedence:
-            return True
-        if to._precedence < _from._precedence:
-            return False
-        else:  # ==
-            raise ConflictReduceReduceError('reduce/reduce conflict')
-
-    def _merge_state(self, state, element_state):
-        if state is element_state:
-            return
-
-        if element_state.reduce_rule is not None:
-            if state.reduce_rule is None:
-                # precedence ?
-                state.reduce_rule = element_state.reduce_rule
-            elif state.reduce_rule is not element_state.reduce_rule:
-                if self._should_override(state.reduce_rule.precedence, element_state.reduce_rule.precedence):
-                    state.reduce_rule = element_state.reduce_rule
-
-        for next_element, next_state in element_state:
-            if next_element in state:
-                exist_state = state.get_next_state(next_element)
-
-                if exist_state.reduce_rule is not None:
-                    # see self.gen: #rebind
-                    if self._should_reduce(exist_state.bind_rule.precedence,
-                                           next_state.bind_rule.precedence):
-                        # discard, we don't merge a low precedence state to high precedence state
-                        continue
-
-                self._merge_state(exist_state, next_state)
-
-            else:
-                if state.reduce_rule is not None:
-                    if self._should_reduce(state.reduce_rule.precedence,
-                                           next_state.bind_rule.precedence):
-                        # percent extend state chain with low precedence state
-                        continue
-                state.set_next_state(next_element, next_state)
-
-    def _merge(self, state):
-        for element, _ in state:
-            if isinstance(element, Symbol):
-                element_state = self._generated_states[element]
-                self._merge_state(state, element_state)
-
-        self._merged_states.add(state)
-        for element, next_state in state:
-            if next_state not in self._merged_states:
-                self._merge(next_state)
+from typing import Dict, List
+from playlang.api import *
+from playlang.objects import Symbol, Terminal
+from playlang.syntex import Syntax, State
 
 
 class TokenReader:
@@ -325,16 +87,16 @@ def _parse(token_reader, state_stack, context):
     lookahead = token_reader.peek()
     while not token_reader.done():
         current_state = state_stack.top()
-        next_state = current_state.get_next_state(lookahead.token)
+        branch = current_state.get_branch(lookahead.token)
 
-        if next_state is not None:
+        if branch is not None:
             # shift
-            if isinstance(lookahead.token, Token):
+            if isinstance(lookahead.token, Terminal):
                 token_reader.read()
-            state_stack.push(next_state)
+            state_stack.push(branch)
             lookahead = token_reader.peek()
         else:
-            if isinstance(lookahead.token, Token) and lookahead.token.ignorable:
+            if isinstance(lookahead.token, Terminal) and lookahead.token.ignorable:
                 token_reader.discard()
                 lookahead = token_reader.peek()
                 continue
@@ -349,8 +111,103 @@ def _parse(token_reader, state_stack, context):
                     f'unexpected token {lookahead}')
 
 
-def parse(states, tokenizer, context=None):
-    token_reader = TokenReader(tokenizer, states.__START__, states.__EOF__)
-    state_stack = StateStack(states)
-    _parse(token_reader, state_stack, context=context)
-    return token_reader.pop().value
+class ParserDict(dict):
+    def __init__(self):
+        super().__init__()
+        self['__syntax__'] = Syntax()
+        self['__scan_info__'] = ScanInfo()
+
+    def __setitem__(self, key, value):
+        if isinstance(value, SymbolInfo):
+            si = value
+            symbol = self['__syntax__'].symbol(key)
+            for ruleinfo in si.rules:
+                symbol.add_rule(ruleinfo.symbols,
+                           action=si.action,
+                           precedence=ruleinfo.precedence,
+                           extra_info=si.extra_info)
+
+            dict.__setitem__(self, key, symbol)
+            return
+
+        elif isinstance(value, TokenInfo):
+            si = self['__scan_info__']
+            token_info = si.tokens.get(key)
+            if token_info is not None:
+                token_info.update(value)
+            else:
+                token_info = value
+                si.tokens[key] = value
+
+            if not token_info.get('discard', False):
+                token = self['__syntax__'].token(
+                    key, ignorable=token_info.get('ignorable', False))
+                token_info['token'] = token
+            else:
+                token = key
+
+            dict.__setitem__(self, key, token)
+            return
+
+        elif value is Precedence.Right:
+            self['__syntax__'].right()
+
+        elif value is Precedence.Left:
+            self['__syntax__'].left()
+
+        elif value is Precedence.Increase:
+            self['__syntax__'].precedence()
+
+        elif isinstance(value, Start):
+            symbol = value.symbol
+            if not isinstance(symbol, Symbol):
+                raise TypeError(
+                    'expected a non-terminal symbol as start symbol. but got %s' % symbol)
+            self['__start_symbol__'] = symbol
+
+        elif isinstance(value, Scan):
+            self['__scan_info__'].contexts[value.name] = value.tokens
+
+        dict.__setitem__(self, key, value)
+
+
+class Parser(type):
+    __state_tree__: State
+    __state_list__: List[State]
+    __symbol_list__: List[str]
+    __scan_info__: ScanInfo
+    __start_symbol__: Symbol
+    __eof_symbol__: Symbol
+    __syntax__: Symbol
+
+    def __new__(cls, name, bases, dic: ParserDict):
+        syntax = dic['__syntax__']
+
+        start_symbol = dic.get('__start_symbol__')
+
+        if start_symbol is None:
+            raise TypeError('missing start symbol')
+
+        if not isinstance(start_symbol, Symbol):
+            raise TypeError(
+                f'invalid type of start symbol "{start_symbol}"')
+
+        state_tree, start_wrapper, eof = syntax.generate(start_symbol)
+
+        dic['__state_tree__'] = state_tree
+        dic['__state_list__'] = syntax._merged_states
+        dic['__symbol_list__'] = syntax._defined_symbols
+        dic['__start_symbol__'] = start_wrapper
+        dic['__eof_symbol__'] = eof
+        
+        return type.__new__(cls, name, bases, dic)
+
+    def parse(cls, scanner, context=None):
+        token_reader = TokenReader(scanner, cls.__start_symbol__, cls.__eof_symbol__)
+        state_stack = StateStack(cls.__state_tree__)
+        _parse(token_reader, state_stack, context=context)
+        return token_reader.pop().value
+
+    @classmethod
+    def __prepare__(metacls, name, bases):
+        return ParserDict()
