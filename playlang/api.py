@@ -71,6 +71,11 @@ class Scan:
         self.name = name
 
 
+class StaticField:
+    def create(self, parser):
+        raise NotImplementedError()
+
+
 class TokenInfo(dict):
     pass
 
@@ -111,6 +116,7 @@ class RuleInfo:
 
 class SymbolInfo(dict):
     def __init__(self):
+        super().__init__()
         self.rules = []
         self.action = None
         self.extra_info = {}
@@ -128,5 +134,8 @@ class Rule:
         else:
             si = SymbolInfo()
             si.rules.append(RuleInfo(self._symbols, self._precedence))
-            si.action = action
+            if isinstance(action, staticmethod):
+                si.action = action.__func__
+            else:
+                si.action = action
             return si

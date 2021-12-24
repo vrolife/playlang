@@ -85,6 +85,7 @@ class ParserCalc(metaclass=Parser):
 
     @JavaScript('expr_name')
     @Rule(NAME)
+    @staticmethod
     def EXPR(self, name):
         self._steps.append(name)
         return self._names[name]
@@ -126,15 +127,14 @@ class ParserCalc(metaclass=Parser):
 
     _ = Start(EXPR)
 
+    scanner = StaticScanner(default_action=lambda ctx: ctx.step(len(ctx.text)))
+
     def __init__(self):
         self._names = {}
         self._steps = []
 
-        self._scanner = Scanner(
-            ParserCalc, default_action=lambda ctx: ctx.step(len(ctx.text)))
-
     def compile_string(self, string):
-        return ParserCalc.parse(self._scanner(string), context=self)
+        return ParserCalc.parse(ParserCalc.scanner(string), context=self)
 
 
 class TestCalc(unittest.TestCase):
@@ -212,7 +212,7 @@ class TestCalc(unittest.TestCase):
             pass
 
         self.assertListEqual(tokens, [
-                             compiler.NAME, compiler.EQUALS, compiler.NUMBER, compiler.PLUS, compiler.NUMBER])
+            compiler.NAME, compiler.EQUALS, compiler.NUMBER, compiler.PLUS, compiler.NUMBER])
 
 
 class TestConflict(unittest.TestCase):
@@ -371,7 +371,6 @@ class TestTokenizer(unittest.TestCase):
 
     def test_context(self):
         self.assertListEqual(self.scan('1"2\\"2"3'), ['1', '2"2', '3'])
-
 
 # UPG
 # RUN python3 -m unittest tests.py

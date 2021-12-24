@@ -1,6 +1,6 @@
 import re
 from playlang.objects import Terminal
-from playlang.api import Location, ScanInfo, TokenValue
+from playlang.api import Location, ScanInfo, TokenValue, StaticField
 
 
 class DiscardError(Exception):
@@ -148,3 +148,14 @@ class Scanner:
 
         if raise_eof:
             raise EOFError(location)
+
+
+class StaticScanner(StaticField):
+    def __init__(self, default_action=None):
+        self._default_action = default_action
+
+    def __call__(self, *args, **kwargs):
+        pass
+
+    def create(self, parser):
+        return Scanner(parser, default_action=self._default_action)

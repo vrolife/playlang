@@ -5,8 +5,8 @@ from playlang.syntex import Syntax, State
 
 
 class TokenReader:
-    def __init__(self, tokenizer, start, eof):
-        self._tokenizer = tokenizer
+    def __init__(self, scanner, start, eof):
+        self._scanner = scanner
         self._start = start
         self._eof = eof
         self._stack = []
@@ -17,7 +17,7 @@ class TokenReader:
 
     def _read(self):
         try:
-            return self._tokenizer.__next__()
+            return self._scanner.__next__()
         except StopIteration:
             return TokenValue(self._eof, None)
         except EOFError as e:
@@ -200,7 +200,13 @@ class Parser(type):
         dic['__start_symbol__'] = start_wrapper
         dic['__eof_symbol__'] = eof
         
-        return type.__new__(cls, name, bases, dic)
+        clazz = type.__new__(cls, name, bases, dic)
+
+        for k, v in dic.items():
+            if isinstance(v, StaticField):
+                setattr(clazz, k, v.create(clazz))
+
+        return clazz
 
     def parse(cls, scanner, context=None):
         token_reader = TokenReader(scanner, cls.__start_symbol__, cls.__eof_symbol__)
