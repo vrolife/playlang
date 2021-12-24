@@ -8,5 +8,5 @@ setuptools.setup(
     author_email='pom@vro.life',
     url='https://git.vro.life/pom/playlang',
     packages=['playlang'],
-    python_requires=">=3.6",
+    python_requires=">=3.7",
 )

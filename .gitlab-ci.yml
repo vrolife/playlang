@@ -14,7 +14,7 @@ stages:
 
 generate_javascript:
   stage: generate_javascript
-  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.6
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.7
   artifacts:
     paths:
       - .js
@@ -31,14 +31,14 @@ test_javascript:
 
 test_python:
   stage: test_python
-  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.6
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.7
   script:
     - python -V
     - python -m unittest tests.py
 
 upload:
   stage: upload
-  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.6
+  image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.7
   script:
     - python setup.py bdist_wheel --build-number ${CI_PIPELINE_IID}
     - pip install twine
