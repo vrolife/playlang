@@ -20,11 +20,6 @@ class TokenReader:
             return self._scanner.__next__()
         except StopIteration:
             return TokenValue(self._eof, None)
-        except EOFError as e:
-            location = None
-            if isinstance(e.args[0], Location):
-                location = e.args[0]
-            return TokenValue(self._eof, None, location=location)
 
     def done(self):
         return len(self._stack) == 1 and self._stack[-1].token is self._start
@@ -96,19 +91,33 @@ def _parse(token_reader, state_stack, context):
             state_stack.push(branch)
             lookahead = token_reader.peek()
         else:
-            if isinstance(lookahead.token, Terminal) and lookahead.token.ignorable:
-                token_reader.discard()
-                lookahead = token_reader.peek()
-                continue
-
             if current_state.reduce_rule is not None:
                 # reduce
                 n = current_state.reduce_rule(token_reader, context=context)
                 state_stack.pop(n)
                 lookahead = token_reader.top()
             else:
-                raise SyntaxError(
-                    f'unexpected token {lookahead}')
+                if isinstance(lookahead.token, Terminal) and lookahead.token.ignorable:
+                    token_reader.discard()
+                    lookahead = token_reader.peek()
+                    continue
+                
+                count = len(current_state.immediate_tokens)
+                location = ""
+                message = ""
+
+                if lookahead.location is not None:
+                    loc = lookahead.location
+                    location = f'{loc.filename}{loc.line}:{loc.column} => '
+
+                if count == 1:
+                    message = f', expecting {current_state.immediate_tokens[0].show_name}'
+                elif count == 2:
+                    message = f', expecting {current_state.immediate_tokens[0].show_name} or {current_state.immediate_tokens[1].show_name}'
+                else:
+                    message = f', expecting one of [{" ".join([t.show_name for t in current_state.immediate_tokens])}]'
+
+                raise SyntaxError(f'{location}unexpected token {lookahead.token.show_name}({lookahead.value}){message}')
 
 
 class ParserDict(dict):
@@ -123,25 +132,45 @@ class ParserDict(dict):
             symbol = self['__syntax__'].symbol(key)
             for ruleinfo in si.rules:
                 symbol.add_rule(ruleinfo.symbols,
-                           action=si.action,
-                           precedence=ruleinfo.precedence,
-                           extra_info=si.extra_info)
+                                action=si.action,
+                                precedence=ruleinfo.precedence,
+                                extra_info=si.extra_info)
+
+            if si.show_name is not None:
+                symbol.show_name = si.show_name
 
             dict.__setitem__(self, key, symbol)
             return
 
         elif isinstance(value, TokenInfo):
+            eof = value.get('eof')
+
+            if eof:
+                token = self['__syntax__'].token(
+                    key, show_name=value.get('show_name'))
+                self['__eof_symbol__'] = token
+                dict.__setitem__(self, key, token)
+                return
+
             si = self['__scan_info__']
             token_info = si.tokens.get(key)
+
             if token_info is not None:
                 token_info.update(value)
             else:
                 token_info = value
                 si.tokens[key] = value
 
-            if not token_info.get('discard', False):
+            discard, ignorable, show_name = map(
+                token_info.get, ('discard', 'ignorable', 'show_name'))
+
+            if show_name is None:
+                token_info['show_name'] = key
+                show_name = key
+
+            if not discard:
                 token = self['__syntax__'].token(
-                    key, ignorable=token_info.get('ignorable', False))
+                    key, ignorable=ignorable, show_name=show_name)
                 token_info['token'] = token
             else:
                 token = key
@@ -192,14 +221,19 @@ class Parser(type):
             raise TypeError(
                 f'invalid type of start symbol "{start_symbol}"')
 
-        state_tree, start_wrapper, eof = syntax.generate(start_symbol)
+        if '__eof_symbol__' not in dic:
+            eof_symbol = syntax.token('__EOF__')
+            dic['__eof_symbol__'] = eof_symbol
+        else:
+            eof_symbol = dic['__eof_symbol__']
+
+        state_tree, start_wrapper = syntax.generate(start_symbol, eof_symbol)
 
         dic['__state_tree__'] = state_tree
         dic['__state_list__'] = syntax._merged_states
-        dic['__symbol_list__'] = syntax._defined_symbols
+        dic['__symbol_list__'] = syntax._defined_symbols.values()
         dic['__start_symbol__'] = start_wrapper
-        dic['__eof_symbol__'] = eof
-        
+
         clazz = type.__new__(cls, name, bases, dic)
 
         for k, v in dic.items():
@@ -209,7 +243,8 @@ class Parser(type):
         return clazz
 
     def parse(cls, scanner, context=None):
-        token_reader = TokenReader(scanner, cls.__start_symbol__, cls.__eof_symbol__)
+        token_reader = TokenReader(
+            scanner, cls.__start_symbol__, cls.__eof_symbol__)
         state_stack = StateStack(cls.__state_tree__)
         _parse(token_reader, state_stack, context=context)
         return token_reader.pop().value

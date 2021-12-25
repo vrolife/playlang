@@ -19,9 +19,11 @@ class MismatchError(Exception):
 class ParserCalc(metaclass=Parser):
     NUMBER = Token(r'\d+',
                    action=int,
+                   show_name='Number',
                    javascript='return parseInt(ctx.text)')
     NAME = Token(r'[a-zA-Z_]+\w*',
                  action=str,
+                 show_name='Name',
                  javascript='return ctx.text')
     NEWLINE = Token(r'\n+',
                     discard=True,
@@ -108,6 +110,7 @@ class ParserCalc(metaclass=Parser):
         self._steps.append(f'({expr})')
         return expr
 
+    @ShowName('Expression')
     @JavaScript('expr_expr_opr_expr')
     @Rule(EXPR, PLUS, EXPR)
     @Rule(EXPR, MINUS, EXPR)
@@ -133,51 +136,51 @@ class ParserCalc(metaclass=Parser):
         self._names = {}
         self._steps = []
 
-    def compile_string(self, string):
+    def parse_string(self, string):
         return ParserCalc.parse(ParserCalc.scanner(string), context=self)
 
 
 class TestCalc(unittest.TestCase):
     def test_right_associativity(self):
         compiler = ParserCalc()
-        result = compiler.compile_string('a=b=3')
+        result = compiler.parse_string('a=b=3')
         self.assertEqual(result, 3)
         self.assertListEqual(compiler._steps, [3, 'b=3', 'a=3'])
 
     def test_left_associativity(self):
         compiler = ParserCalc()
-        result = compiler.compile_string('2+3+4')
+        result = compiler.parse_string('2+3+4')
         self.assertEqual(result, 9)
         self.assertListEqual(compiler._steps, [2, 3, '2+3', 4, '5+4'])
 
     def test_reference(self):
         compiler = ParserCalc()
         compiler._names['a'] = 3
-        result = compiler.compile_string('a*4')
+        result = compiler.parse_string('a*4')
         self.assertEqual(result, 12)
         self.assertListEqual(compiler._steps, ['a', 4, '3*4'])
 
     def testprecedence(self):
         compiler = ParserCalc()
-        result = compiler.compile_string('2+3*4')
+        result = compiler.parse_string('2+3*4')
         self.assertEqual(result, 14)
         self.assertListEqual(compiler._steps, [2, 3, 4, '3*4', '2+12'])
 
     def test_group(self):
         compiler = ParserCalc()
-        result = compiler.compile_string('2+(3+4)')
+        result = compiler.parse_string('2+(3+4)')
         self.assertEqual(result, 9)
         self.assertListEqual(compiler._steps, [2, 3, 4, '3+4', '(7)', '2+7'])
 
     def test_minus(self):
         compiler = ParserCalc()
-        result = compiler.compile_string('-2*3')
+        result = compiler.parse_string('-2*3')
         self.assertEqual(result, -6)
         self.assertListEqual(compiler._steps, [2, '-2', 3, '-2*3'])
 
     def test_assign(self):
         compiler = ParserCalc()
-        result = compiler.compile_string('x=1+2*-3')
+        result = compiler.parse_string('x=1+2*-3')
         self.assertEqual(result, -5)
         self.assertEqual(compiler._names['x'], -5)
         self.assertListEqual(
@@ -185,31 +188,28 @@ class TestCalc(unittest.TestCase):
 
     def test_ignorabletoken(self):
         compiler = ParserCalc()
-        result = compiler.compile_string('2+3 *4+5')
+        result = compiler.parse_string('2+3 *4+5')
         self.assertEqual(result, 19)
         self.assertListEqual(
             compiler._steps, [2, 3, 4, '3*4', '2+12', 5, '14+5'])
 
     def test_string(self):
         compiler = ParserCalc()
-        result = compiler.compile_string('x="123"')
+        result = compiler.parse_string('x="123"')
         self.assertEqual(result, "123")
         self.assertListEqual(
             compiler._steps, ['123', 'x=123'])
 
     def test_calc2(self):
         compiler = ParserCalc()
-        scan_info = getattr(compiler, '__scan_info__')
 
         scanner = Scanner(
-            scan_info, default_action=lambda ctx: ctx.step())
+            ParserCalc, default_action=lambda ctx: ctx.step())
 
         tokens = []
-        try:
-            for tv in scanner("a=1+1"):
-                tokens.append(tv.token)
-        except EOFError as e:
-            pass
+
+        for tv in scanner("a=1+1"):
+            tokens.append(tv.token)
 
         self.assertListEqual(tokens, [
             compiler.NAME, compiler.EQUALS, compiler.NUMBER, compiler.PLUS, compiler.NUMBER])
@@ -218,6 +218,8 @@ class TestCalc(unittest.TestCase):
 class TestConflict(unittest.TestCase):
     def test_reduce_reduce(self):
         syntax = Syntax()
+        EOF = syntax.token('__EOF__')
+
         A = syntax.token('A')
         B = syntax.token('B')
 
@@ -229,10 +231,11 @@ class TestConflict(unittest.TestCase):
         EXPR.add_rule(A, B)
 
         self.assertRaises(ConflictReduceReduceError,
-                          lambda: syntax.generate(EXPR))
+                          lambda: syntax.generate(EXPR, EOF))
 
     def test_shift_reduce(self):
         syntax = Syntax(auto_shift=False)
+        EOF = syntax.token('__EOF__')
 
         A = syntax.token('A')
         B = syntax.token('B')
@@ -245,7 +248,70 @@ class TestConflict(unittest.TestCase):
         EXPR.add_rule(A)
 
         self.assertRaises(ConflictShiftReduceError,
-                          lambda: syntax.generate(EXPR))
+                          lambda: syntax.generate(EXPR, EOF))
+
+
+class ParserPair(metaclass=Parser):
+    EOF = Token(None, eof=True, show_name='End-Of-File')
+    NAME = Token(r'[a-zA-Z]+')
+    DIGITS = Token(r'\d+')
+    NEWLINE = Token(r'\n+',
+                    action=lambda ctx: ctx.lines(len(ctx.text)))
+    WHITE = Token(r'\s+', discard=True)
+    MISMATCH = Token(r'.', action=lambda ctx: MismatchError.throw(ctx.text))
+
+    _ = Scan(NAME, DIGITS, NEWLINE, WHITE, MISMATCH)
+
+    @ShowName('Number')
+    @Rule(DIGITS)
+    def NUMBER(self, val):
+        return val
+
+    @Rule(NUMBER, NUMBER)
+    def PAIR(self, n1, n2):
+        return (n1, n2)
+
+    @Rule(NUMBER, EOF)
+    def PAIR(self, n1, _):
+        return (n1, None)
+
+    @Rule()
+    def LIST(self):
+        return []
+
+    @Rule(PAIR)
+    def LIST(self, pair):
+        return [pair]
+
+    @Rule(LIST, PAIR)
+    def LIST(self, expr, pair):
+        expr.append(pair)
+        return expr
+
+    _ = Start(LIST)
+
+    def __init__(self):
+        self._scanner = Scanner(
+            ParserPair, default_action=lambda ctx: ctx.step(len(ctx.text)))
+
+    def parse_string(self, string):
+        return ParserPair.parse(self._scanner(string), context=self)
+
+
+class TestPair(unittest.TestCase):
+    def test_simple(self):
+        compiler = ParserPair()
+        lst = compiler.parse_string('2 3')
+        self.assertListEqual(lst, [('2', '3')])
+
+    def test_half(self):
+        compiler = ParserPair()
+        lst = compiler.parse_string('2 3 4')
+        self.assertListEqual(lst, [('2', '3'), ('4', None)])
+
+    def test_error(self):
+        compiler = ParserPair()
+        self.assertRaises(SyntaxError, lambda: compiler.parse_string('2 3 4 x'))
 
 
 class ParserList(metaclass=Parser):
@@ -281,29 +347,34 @@ class ParserList(metaclass=Parser):
         self._scanner = Scanner(
             ParserList, default_action=lambda ctx: ctx.step(len(ctx.text)))
 
-    def compile_string(self, string):
+    def parse_string(self, string):
         return ParserList.parse(self._scanner(string), context=self)
 
 
 class TestList(unittest.TestCase):
+    def test_simple(self):
+        compiler = ParserList()
+        lst = compiler.parse_string('234')
+        self.assertListEqual(lst, ['2', '3', '4'])
+
     def test_new_line(self):
         compiler = ParserList()
-        lst = compiler.compile_string('2\n\n34')
+        lst = compiler.parse_string('2\n34')
         self.assertListEqual(lst, ['2', '3', '4'])
 
     def test_empty_list(self):
         compiler = ParserList()
-        lst = compiler.compile_string('')
+        lst = compiler.parse_string('')
         self.assertListEqual(lst, [])
 
 
-class TestTokenizer(unittest.TestCase):
+class TestScanner(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.si = ScanInfo()
         self.si.contexts = {
             '__default__': ['DIGITS', 'QUOTE', 'NEWLINE', 'WHITE', 'MISMATCH'],
-            'string': ['STRING_ESCAPE', 'STRING_QUOTE', 'STRING_CHAR', 'MISMATCH']
+            'string': ['STRING_QUOTE', 'STRING_ESCAPE', 'STRING_NEWLINE', 'STRING_CHAR', 'MISMATCH']
         }
         self.si.tokens = {
             'DIGITS': {
@@ -315,19 +386,24 @@ class TestTokenizer(unittest.TestCase):
                 'action': lambda ctx: ctx.enter('string', io.StringIO()),
                 'discard': True
             },
+            'STRING_QUOTE': {
+                'pattern': r'"',
+                'action': lambda ctx: ctx.leave(),
+                'discard': True
+            },
             'STRING_ESCAPE': {
                 'pattern': r'\\"',
                 'action': lambda ctx: ctx.value.write(ctx.text[1]),
                 'discard': True
             },
+            'STRING_NEWLINE': {
+                'pattern': r'\n',
+                'action': lambda ctx: MismatchError.throw('string missing terminator'),
+                'discard': True
+            },
             'STRING_CHAR': {
                 'pattern': r'.',
                 'action': lambda ctx: ctx.value.write(ctx.text),
-                'discard': True
-            },
-            'STRING_QUOTE': {
-                'pattern': r'"',
-                'action': lambda ctx: ctx.leave(),
                 'discard': True
             },
             'STRING': {
@@ -336,8 +412,7 @@ class TestTokenizer(unittest.TestCase):
             },
             'NEWLINE': {
                 'pattern': r'\n+',
-                'action': lambda ctx: ctx.lines(len(ctx.text)),
-                'discard': True
+                'action': lambda ctx: ctx.lines(len(ctx.text)).text,
             },
             'WHITE': {
                 'pattern': r'\s+',
@@ -355,14 +430,19 @@ class TestTokenizer(unittest.TestCase):
             self.si, lambda ctx: ctx.step())
 
         self.scan = lambda s: list(
-            map(lambda v: v.value, self.scanner(s, raise_eof=False)))
+            map(lambda v: v.value, self.scanner(s)))
 
     def test_simple(self):
         self.assertListEqual(self.scan('123'), ['1', '2', '3'])
 
     def test_discard(self):
-        self.assertListEqual(self.scan('12\n3'), ['1', '2', '3'])
         self.assertListEqual(self.scan('12 3'), ['1', '2', '3'])
+
+    def test_newline(self):
+        self.assertListEqual(self.scan('1\n2'), ['1', '\n', '2'])
+
+    def test_string_missing_terminator(self):
+        self.assertRaises(MismatchError, lambda: self.scan('1"\n"2'))
 
     def test_mismatch(self):
         self.assertRaises(MismatchError, lambda *args: self.scan('x'))

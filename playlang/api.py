@@ -7,6 +7,18 @@ class Location:
         self._line_num = line_num
         self._column = column
 
+    @property
+    def filename(self):
+        return self._filename
+
+    @property
+    def line(self):
+        return self._line_num
+
+    @property
+    def column(self):
+        return self._column
+
     def lines(self, n):
         self._line_num += n
         self._column = 0
@@ -93,6 +105,8 @@ def Token(pattern,
           context=None,
           capture=False,
           token=None,
+          eof=False,
+          show_name=None,
           **extra_info):
     ti = TokenInfo()
     if capture:
@@ -104,6 +118,8 @@ def Token(pattern,
     ti['discard'] = discard
     ti['ignorable'] = ignorable
     ti['context'] = context
+    ti['eof'] = eof
+    ti['show_name'] = show_name
     ti.update(extra_info)
     return ti
 
@@ -114,12 +130,12 @@ class RuleInfo:
         self.precedence = precedence
 
 
-class SymbolInfo(dict):
+class SymbolInfo:
     def __init__(self):
-        super().__init__()
         self.rules = []
         self.action = None
         self.extra_info = {}
+        self.show_name = None
 
 
 class Rule:
@@ -139,3 +155,14 @@ class Rule:
             else:
                 si.action = action
             return si
+
+
+class ShowName:
+    def __init__(self, name):
+        self._name = name
+
+    def __call__(self, si):
+        if isinstance(si, SymbolInfo):
+            si.show_name = self._name
+            return si
+        raise TypeError('unsupported target: %s' % si)

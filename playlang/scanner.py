@@ -3,6 +3,10 @@ from playlang.objects import Terminal
 from playlang.api import Location, ScanInfo, TokenValue, StaticField
 
 
+class TrailingJunk(Exception):
+    pass
+
+
 class DiscardError(Exception):
     pass
 
@@ -60,6 +64,7 @@ class Scanner:
 
         def action_wrapper(context):
             value = None
+            loc = context.location.copy()
 
             if isinstance(action, type):
                 value = action(context.text)
@@ -72,14 +77,14 @@ class Scanner:
                 value = context.text
                 self._default_action(context)
 
-            if value is None or discard:
+            if discard:
                 raise DiscardError()
 
-            return TokenValue(token, value, context.location.copy())
+            return TokenValue(token, value, loc)
 
         return action_wrapper
 
-    def __call__(self, string, filename='<memory>', raise_eof=True):
+    def __call__(self, string, filename='<memory>', ignore_tailing=False):
         location = Location(filename=filename)
         stack = []
         leave = False
@@ -102,9 +107,11 @@ class Scanner:
                     location.step(len(self.text))
                 else:
                     location.step(n)
+                return self
 
             def lines(self, n):
                 location.lines(n)
+                return self
 
             @property
             def value(self):
@@ -117,14 +124,17 @@ class Scanner:
             def enter(self, name, value=None):
                 nonlocal stack
                 stack.append(Context(name, this._regexps[name], value))
+                return self
 
             def leave(self):
                 nonlocal leave
                 if stack.__len__() == 1:
                     raise Exception('leave top context are not allowed')
                 leave = True
+                return self
 
-        stack.append(Context('__default__', self._regexps['__default__'], None))
+        stack.append(
+            Context('__default__', self._regexps['__default__'], None))
 
         pos = 0
         while True:
@@ -146,8 +156,10 @@ class Scanner:
             except DiscardError:
                 continue
 
-        if raise_eof:
-            raise EOFError(location)
+        if pos != len(string) and not ignore_tailing:
+            raise TrailingJunk(location)
+            
+        # raise StopIteration
 
 
 class StaticScanner(StaticField):

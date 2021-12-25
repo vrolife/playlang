@@ -32,6 +32,12 @@ function assert(code, other) {
     }
 }
 
+try {
+    parse(scan('1x'), context)
+} catch(e) {
+    assert(`"${e.message}"`, '<memory>0:0 => unexpected token Name(x), expecting one of [__EOF__ PLUS MINUS TIMES DIVIDE]')
+}
+
 assert(`parse(scan('y="123"'), context)`, '123')
 assert(`parse(scan('a=b=3'), context)`, 3)
 assert(`parse(scan('2+3+4'), context)`, 9)

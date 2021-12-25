@@ -22,5 +22,8 @@ class TestJavaScript(unittest.TestCase):
 
 if __name__ == '__main__':
     compiler = ParserCalc()
-    with open(os.path.join(sys.argv[1], 'parser.mjs'), 'w') as f:
-        JavaScript.generate(compiler, f)
+    if sys.argv[1] == '-':
+        JavaScript.generate(compiler, sys.stdout)
+    else:
+        with open(os.path.join(sys.argv[1], 'parser.mjs'), 'w') as f:
+            JavaScript.generate(compiler, f)

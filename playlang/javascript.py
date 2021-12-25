@@ -12,38 +12,34 @@ class TokenReader {
         this._start = start
         this._eof = eof
         this._stack = []
-        this._next_token = null
+        this._next_token = undefined
     }
     
     _read() {
-        try {
-            const {done, value} = this._tokenizer.next()
-            if (done) {
-                return [this._eof, null]
-            }
-            return value
-        } catch(error) {
-            return [this._eof, null]
+        const {done, value} = this._tokenizer.next()
+        if (done) {
+            return [this._eof, undefined, undefined]
         }
+        return value
     }
     
     done() { return this._stack.length == 1 && this._stack[this._stack.length-1][0] === this._start; }
     top() { return this._stack[this._stack.length - 1]; }
     peek() {
-        if (this._next_token === null) {
+        if (this._next_token === undefined) {
             this._next_token = this._read()
         }
         return this._next_token
     }
     
-    discard() { this._next_token = null; }
+    discard() { this._next_token = undefined; }
     
     read() {
         var t = this._next_token
-        if (t === null) {
+        if (t === undefined) {
             t = this._read()
         } else {
-            this._next_token = null
+            this._next_token = undefined
         }
         this._stack.push(t)
     }
@@ -75,15 +71,27 @@ class Location {
         this._column = column
     }
 
+    get filename() {
+        return this._filename
+    }
+
+    get line() {
+        return this._line_num
+    }
+
+    get column() {
+        return this._column
+    }
+
     lines(n) {
         this._line_num += n
         this._column = 0
-        return null
+        return undefined
     }
 
     step(n) {
         this._column += n
-        return null
+        return undefined
     }
 
     copy() {
@@ -96,7 +104,7 @@ class Context {
         this.name = name
         this._regexp = regexp
         this._value = value
-        this.text = null
+        this.text = undefined
         this._location = location
 
         this.enter = enter
@@ -123,6 +131,9 @@ class Context {
         this._location.lines(n)
     }
 }
+
+class TrailingJunk extends Error {}
+class SyntaxError extends Error {}
 """
 
 
@@ -201,24 +212,41 @@ class JavaScript:
 
         p + _CLASSES
 
+        symbol_map = {}
+
         idx = 1
         for token, token_info in scan_info.tokens.items():
             if token_info.get('ignorable', False):
-                p + f'const {token} = {idx * 100000}'
+                symbol_map[token] = idx * 10000
             else:
-                p + f'const {token} = {idx}'
+                symbol_map[token] = idx
             idx += 1
+
         # TODO ignorable
-        p + f'const {parser.__eof_symbol__.name} = {idx}'
+        symbol_map[parser.__eof_symbol__] = idx
         idx += 1
 
-        idx = -1
-        p + f'const {parser.__start_symbol__.name} = {idx}'
-        idx -= 1
+        idx = 20000
+        symbol_map[parser.__start_symbol__] = idx
+        idx += 1
 
         for symbol in parser.__symbol_list__:
-            p + f'const {symbol} = {idx}'
-            idx -= 1
+            symbol_map[symbol] = idx
+            idx += 1
+
+        for sym, idx in symbol_map.items():
+            p + f'const {sym} = {idx}'
+
+        p + ''
+        p < 'const show_name = {'
+        for sym, idx in symbol_map.items():
+            if isinstance(sym, str):
+                ti = scan_info.tokens[sym]
+                name = ti.get('show_name', sym)
+            else:
+                name = sym.show_name
+            p + f'{idx}: "{name}",'
+        p > '}'
 
         p + ''
         p < 'const capture = {'
@@ -269,6 +297,9 @@ class JavaScript:
 
         p + f"""
 export function* scan(content, filename) {{
+    if (filename === undefined) {{
+        filename = '<memory>'
+    }}
     const location = new Location(filename, 0, 0)
     const stack = []
     var leave_flag = false
@@ -282,7 +313,7 @@ export function* scan(content, filename) {{
         stack.push(new Context(name, regexps[name], value, location, enter, leave))
     }}
 
-    stack.push(new Context('__default__', regexps['__default__'], null, location, enter, leave))
+    stack.push(new Context('__default__', regexps['__default__'], undefined, location, enter, leave))
 
     while (true) {{
         var ctx = stack[stack.length - 1]
@@ -292,7 +323,7 @@ export function* scan(content, filename) {{
             const [tok, discard, action] = capture[ctx.name]
             const value = action(ctx)
             if (!discard) {{
-                yield [tok, value]
+                yield [tok, value, location]
             }}
             stack.pop()
             ctx = stack[stack.length - 1]
@@ -313,14 +344,16 @@ export function* scan(content, filename) {{
                 const [tok, discard, action] = token_info
                 const value = action(ctx)
                 if (!discard) {{
-                    yield [tok, value]
+                    yield [tok, value, location]
                 }}
                 break
             }}
         }}
     }}
 
-    yield [__EOF__, null]
+    if (pos !== content.length){{
+        throw new TrailingJunk(location)
+    }}
 }}"""
 
         states_ids = {}
@@ -346,12 +379,12 @@ export function* scan(content, filename) {{
                 for ts, st in state.branchs.items():
                     p + f'case {ts.name}:'
                     p << f'state_stack.push({states_ids[st]})'
-                    p + 'if (lookahead[0] > 0) token_reader.read()'
+                    p + 'if (lookahead[0] < 20000) token_reader.read()'
                     p + 'lookahead = token_reader.peek()'
                     p >> 'break'
 
             p + 'default:'
-            p << 'if (lookahead[0] > 0 && lookahead[0]> 100000)'
+            p << 'if (lookahead[0] < 20000 && lookahead[0]> 10000)'
             p < '{'
             p + 'token_reader.discard()'
             p + 'lookahead = token_reader.peek()'
@@ -361,7 +394,7 @@ export function* scan(content, filename) {{
             if state.reduce_rule is not None:
                 if state.reduce_rule.action is None:
                     p + f'token_reader.consume({len(state.reduce_rule)})'
-                    p + f'token_reader.commit([{state.reduce_rule.symbol}, null])'
+                    p + f'token_reader.commit([{state.reduce_rule.symbol}, undefined])'
                 else:
                     p + 'const args = []'
                     p + \
@@ -378,8 +411,21 @@ export function* scan(content, filename) {{
                     f'state_stack.splice(state_stack.length - {len(state.reduce_rule)}, {len(state.reduce_rule)})'
                 p + 'lookahead = token_reader.top()'
             else:
-                p + 'throw Error(`unexpected token ${lookahead[0]}`)'
+                count = len(state.immediate_tokens)
+                message = ""
 
+                if count == 1:
+                    message = f', expecting {state.immediate_tokens[0].show_name}'
+                elif count == 2:
+                    message = f', expecting {state.immediate_tokens[0].show_name} or {state.immediate_tokens[1].show_name}'
+                else:
+                    message = f', expecting one of [{" ".join([t.show_name for t in state.immediate_tokens])}]'
+
+                p + 'const [token, value, loc] = lookahead'
+                p + 'var location = ""'
+                p + 'if (loc !== undefined) { location = `${loc.filename}${loc.line}:${loc.column} => ` }'
+                p + f'throw new SyntaxError(`${{location}}unexpected token ${{show_name[token]}}(${{value}}){message}`)'
+                
             p >> 'break'
             p > '}'
             p + 'break'

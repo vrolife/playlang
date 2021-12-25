@@ -36,10 +36,21 @@ class _Precedence:
 
 
 class Terminal:
-    def __init__(self, name, precedence, ignorable=False):
-        self.name = name
+    def __init__(self, name, precedence, ignorable=False, show_name=None):
+        self._name = name
         self.precedence = precedence
         self.ignorable = ignorable
+        self._show_name = show_name
+
+    @property
+    def show_name(self):
+        if self._show_name is None:
+            return self.name
+        return self._show_name
+
+    @property
+    def name(self):
+        return self._name
 
     def __repr__(self):
         return self.name
@@ -104,11 +115,16 @@ class SymbolRule:
 class Symbol:
     def __init__(self, name):
         assert (name)
-        self.name = name
+        self._name = name
         self._rules = []
+        self.show_name = name
 
     def __repr__(self):
         return self.name
+
+    @property
+    def name(self):
+        return self._name
 
     @property
     def rules(self):
@@ -161,6 +177,7 @@ class State:
 
         # see StateIter
         self._tokens = []
+        self._immediate_tokens = None
 
     def __repr__(self):
         return self._tokens.__repr__()
@@ -169,8 +186,19 @@ class State:
         return token in self._branchs
 
     @property
+    def tokens(self):
+        return self._tokens
+
+    @property
+    def immediate_tokens(self):
+        return self._immediate_tokens
+
+    @property
     def branchs(self):
         return self._branchs
+
+    def _copy_tokens(self):
+        self._immediate_tokens = tuple(self._tokens)
 
     def set_branch(self, token, state):
         self._tokens.append(token)

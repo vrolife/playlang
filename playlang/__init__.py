@@ -1,5 +1,5 @@
 from playlang.errors import *
-from playlang.api import Location, Rule, Precedence, Scan, Start, Action, Token
+from playlang.api import Location, Rule, Precedence, Scan, Start, Action, Token, ShowName
 from playlang.parser import Parser
 from playlang.scanner import Scanner, StaticScanner
 
@@ -18,4 +18,5 @@ __all__ = [
     'Parser',
     'Precedence',
     'Start',
+    'ShowName'
 ]

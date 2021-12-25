@@ -1,3 +1,4 @@
+import enum
 from playlang.errors import *
 from playlang.objects import _Precedence, Symbol, Terminal, State
 
@@ -11,7 +12,6 @@ class Syntax:
         self._pending_rules = {}
         self._merged_states = set()
         self._current_precedence = _Precedence(0)
-        self.__EOF__ = Terminal('__EOF__', self._current_precedence)
 
     def __call__(self, *rule, precedence=None, name=None):
         def dec(action):
@@ -33,28 +33,32 @@ class Syntax:
 
         return dec
 
-    def symbol(self, name) -> Symbol:
+    def precedence(self):
+        self._current_precedence = _Precedence(
+            self._current_precedence.precedence + 1)
+
+    def left(self):
+        self._current_precedence = _Precedence(
+            self._current_precedence.precedence + 1, _Precedence.ASSOC_LEFT)
+
+    def right(self):
+        self._current_precedence = _Precedence(
+            self._current_precedence.precedence + 1, _Precedence.ASSOC_RIGHT)
+
+    def nonassoc(self):
+        self._current_precedence = _Precedence(
+            self._current_precedence.precedence + 1, _Precedence.ASSOC_NONE)
+
+    def symbol(self, name, **kwargs):
         if name is None:
             raise TypeError('symbol name must be not none')
 
         symbol = self._defined_symbols.get(name)
         if symbol is None:
-            symbol = Symbol(name)
+            symbol = Symbol(name, **kwargs)
             self._defined_symbols[name] = symbol
 
         return symbol
-
-    def precedence(self):
-        self._current_precedence = _Precedence(self._current_precedence.precedence + 1)
-
-    def left(self):
-        self._current_precedence = _Precedence(self._current_precedence.precedence + 1, _Precedence.ASSOC_LEFT)
-
-    def right(self):
-        self._current_precedence = _Precedence(self._current_precedence.precedence + 1, _Precedence.ASSOC_RIGHT)
-
-    def nonassoc(self):
-        self._current_precedence = _Precedence(self._current_precedence.precedence + 1, _Precedence.ASSOC_NONE)
 
     def token(self, name, **kwargs):
         if name in self._defined_tokens:
@@ -63,18 +67,18 @@ class Syntax:
         self._defined_tokens.add(name)
         return Terminal(name, precedence=self._current_precedence, **kwargs)
 
-    def generate(self, start_symbol):
+    def generate(self, start_symbol, eof_symbol):
         def reduce(v, _):
             return v
 
         start_wrapper = Symbol(name='__START__')
-        start_wrapper.add_rule([start_symbol, self.__EOF__], action=reduce)
+        start_wrapper.add_rule([start_symbol, eof_symbol], action=reduce)
 
         root_state = self._generate_state_tree(start_wrapper)
 
         self._merge_state_tree(root_state)
 
-        return root_state, start_wrapper, self.__EOF__
+        return root_state, start_wrapper
 
     def _generate_state_tree(self, symbol):
         state = self._generated_states.get(symbol)
@@ -177,6 +181,7 @@ class Syntax:
                 state.set_branch(next_element, branch)
 
     def _merge_state_tree(self, state):
+        state._copy_tokens()
         for element, _ in state:
             if isinstance(element, Symbol):
                 element_state = self._generated_states[element]
