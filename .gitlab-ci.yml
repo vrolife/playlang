@@ -46,4 +46,4 @@ upload:
     - export TWINE_USERNAME=gitlab-ci-token
     - python -m twine upload --repository-url ${PYPI_REPOSITORY} dist/*
   only:
-    - master
+    - /^release-.*/
