@@ -7,7 +7,6 @@ from tests import ParserCalc
 
 class TestJavaScript(unittest.TestCase):
     def test_javasript(self):
-        print('js')
         compiler = ParserCalc()
         with tempfile.TemporaryDirectory() as dir:
             with open(os.path.join(dir, 'parser.mjs'), 'w') as f:

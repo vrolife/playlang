@@ -64,7 +64,7 @@ class TokenReader {
     }
 }
 
-class Location {
+export class Location {
     constructor(filename, line_num, column) {
         this._filename = filename
         this._line_num = line_num
@@ -99,7 +99,7 @@ class Location {
     }
 }
 
-class Context {
+export class Context {
     constructor(name, regexp, value, location, enter, leave) {
         this.name = name
         this._regexp = regexp
@@ -107,8 +107,8 @@ class Context {
         this.text = undefined
         this._location = location
 
-        this.enter = enter
-        this.leave = leave
+        this.enter = (name, value) => { enter(name, value); return this; }
+        this.leave = () => { leave(); return this; }
     }
 
     get value() {
@@ -125,15 +125,17 @@ class Context {
         } else {
             location.step(n)
         }
+        return this
     }
 
     lines(n) {
         this._location.lines(n)
+        return this
     }
 }
 
-class TrailingJunk extends Error {}
-class SyntaxError extends Error {}
+export class TrailingJunk extends Error {}
+export class SyntaxError extends Error {}
 """
 
 
@@ -217,7 +219,7 @@ class JavaScript:
         idx = 1
         for token, token_info in scan_info.tokens.items():
             if token_info.get('ignorable', False):
-                symbol_map[token] = idx * 10000
+                symbol_map[token] = idx + 10000
             else:
                 symbol_map[token] = idx
             idx += 1
@@ -383,13 +385,7 @@ export function* scan(content, filename) {{
                     p + 'lookahead = token_reader.peek()'
                     p >> 'break'
 
-            p + 'default:'
-            p << 'if (lookahead[0] < 20000 && lookahead[0]> 10000)'
-            p < '{'
-            p + 'token_reader.discard()'
-            p + 'lookahead = token_reader.peek()'
-            p + 'break'
-            p > '}'
+            p < 'default:'
 
             if state.reduce_rule is not None:
                 if state.reduce_rule.action is None:
@@ -411,6 +407,13 @@ export function* scan(content, filename) {{
                     f'state_stack.splice(state_stack.length - {len(state.reduce_rule)}, {len(state.reduce_rule)})'
                 p + 'lookahead = token_reader.top()'
             else:
+                p + 'if (lookahead[0] < 20000 && lookahead[0]> 10000)'
+                p < '{'
+                p + 'token_reader.discard()'
+                p + 'lookahead = token_reader.peek()'
+                p + 'break'
+                p > '}'
+
                 count = len(state.immediate_tokens)
                 message = ""
 
