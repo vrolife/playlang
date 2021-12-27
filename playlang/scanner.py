@@ -142,7 +142,8 @@ class Scanner:
             try:
                 if leave:
                     leave = False
-                    yield self._capture[ctx.name](ctx)
+                    if ctx.name in self._capture:
+                        yield self._capture[ctx.name](ctx)
                     stack.pop()
                     ctx = stack[-1]
 

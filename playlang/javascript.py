@@ -308,10 +308,12 @@ export function* scan(content, filename) {{
 
         if (leave_flag) {{
             leave_flag = false
-            const [tok, discard, action] = capture[ctx.name]
-            const value = action(ctx)
-            if (!discard) {{
-                yield [tok, value, location]
+            if (ctx.name in capture) {{
+                const [tok, discard, action] = capture[ctx.name]
+                const value = action(ctx)
+                if (!discard) {{
+                    yield [tok, value, location]
+                }}
             }}
             stack.pop()
             ctx = stack[stack.length - 1]
