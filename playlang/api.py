@@ -98,7 +98,7 @@ def Action(action):
     return ti
 
 
-def Token(pattern,
+def Token(pattern=None,
           action=None,
           discard=False,
           ignorable=False,

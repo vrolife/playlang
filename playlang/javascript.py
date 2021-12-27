@@ -1,9 +1,6 @@
-import io
 import re
-from typing import List
 from playlang.syntex import State
 from playlang.api import TokenInfo, SymbolInfo, ScanInfo
-
 
 _CLASSES = """
 class TokenReader {
@@ -140,6 +137,7 @@ export class SyntaxError extends Error {}
 
 
 class LineAppend:
+
     def __init__(self, file):
         self._file = file
 
@@ -152,6 +150,7 @@ class LineAppend:
 
 
 class Printer:
+
     def __init__(self, file):
         self._indent = 0
         self._file = file
@@ -193,111 +192,98 @@ class Printer:
             for item in items:
                 self + item + ','
 
-class JavaScript:
-    def __init__(self, code):
-        self._code = code
 
-    def __call__(self, symbol):
-        if isinstance(symbol, SymbolInfo):
-            symbol.extra_info['javascript'] = self._code
-            return symbol
-        elif isinstance(symbol, TokenInfo):
-            symbol['javascript'] = self._code
-            return symbol
-        raise TypeError('unsupported target %s' % symbol)
+def _generate(parser, file):
+    scan_info = parser.__scan_info__  # type: ScanInfo
+    p = Printer(file)
+    p + '// generated code'
 
-    @staticmethod
-    def generate(parser, file):
-        scan_info = parser.__scan_info__ # type: ScanInfo
-        p = Printer(file)
-        p + '// generated code'
+    p + _CLASSES
 
-        p + _CLASSES
+    symbol_map = {}
 
-        symbol_map = {}
-
-        idx = 1
-        for token, token_info in scan_info.tokens.items():
-            if token_info.get('ignorable', False):
-                symbol_map[token] = idx + 10000
-            else:
-                symbol_map[token] = idx
-            idx += 1
-
-        # TODO ignorable
-        symbol_map[parser.__eof_symbol__] = idx
+    idx = 1
+    for token, token_info in scan_info.tokens.items():
+        if token_info.get('ignorable', False):
+            symbol_map[token] = idx + 10000
+        else:
+            symbol_map[token] = idx
         idx += 1
 
-        idx = 20000
-        symbol_map[parser.__start_symbol__] = idx
+    # TODO ignorable
+    symbol_map[parser.__eof_symbol__] = idx
+    idx += 1
+
+    idx = 20000
+    symbol_map[parser.__start_symbol__] = idx
+    idx += 1
+
+    for symbol in parser.__symbol_list__:
+        symbol_map[symbol] = idx
         idx += 1
 
-        for symbol in parser.__symbol_list__:
-            symbol_map[symbol] = idx
-            idx += 1
+    for sym, idx in symbol_map.items():
+        p + f'const {sym} = {idx}'
 
-        for sym, idx in symbol_map.items():
-            p + f'const {sym} = {idx}'
+    p + ''
+    p < 'const show_name = {'
+    for sym, idx in symbol_map.items():
+        if isinstance(sym, str):
+            ti = scan_info.tokens[sym]
+            name = ti.get('show_name', sym)
+        else:
+            name = sym.show_name
+        p + f'{idx}: "{name}",'
+    p > '}'
 
-        p + ''
-        p < 'const show_name = {'
-        for sym, idx in symbol_map.items():
-            if isinstance(sym, str):
-                ti = scan_info.tokens[sym]
-                name = ti.get('show_name', sym)
-            else:
-                name = sym.show_name
-            p + f'{idx}: "{name}",'
-        p > '}'
+    p + ''
+    p < 'const capture = {'
+    for name, token_info in scan_info.tokens.items():
+        pattern, capture = map(token_info.get, ('pattern', 'capture'))
+        action = token_info.get('javascript', 'return ctx.text')
+        discard = token_info.get('discard')
 
-        p + ''
-        p < 'const capture = {'
-        for name, token_info in scan_info.tokens.items():
-            pattern, capture = map(token_info.get, ('pattern', 'capture'))
+        if capture is not None:
+            p + f'"{capture}": [{name}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'  # nopep8
+
+    p > '}'
+
+    r = re.compile(r'(?:[^\\]|^)\(')
+
+    regexps = {}
+    p + ''
+    p < 'const actions = {'
+    for context, tokens in scan_info.contexts.items():
+        buf = []
+        group = 1
+
+        p < f'"{context}": {{'
+        for token in tokens:
+            token_info = scan_info.tokens[str(token)]
             action = token_info.get('javascript', 'return ctx.text')
+            pattern = token_info.get('pattern')
             discard = token_info.get('discard')
 
-            if capture is not None:
-                p + f'"{capture}": [{name}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'
+            if token_info.get('capture', False):
+                continue
 
-        p > '}'
+            if pattern is None:
+                raise TypeError('token missing pattern: %s' % token)
 
-        r = re.compile(r'(?:[^\\]|^)\(')
+            p + f'{group}:[{token}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'  # nopep8
+            buf.append(f'({pattern})')
+            group += len(r.findall(pattern)) + 1
+        p > '},'
 
-        regexps = {}
-        p + ''
-        p < 'const actions = {'
-        for context, tokens in scan_info.contexts.items():
-            buf = []
-            group = 1
+        regexps[context] = '|'.join(buf)
+    p > '} // actions'
+    p + ''
+    p < 'const regexps = {'
+    for context, _ in scan_info.contexts.items():
+        p + f'"{context}": /{regexps[context]}/g,'
+    p > '}'
 
-            p < f'"{context}": {{'
-            for token in tokens:
-                token_info = scan_info.tokens[str(token)]
-                action = token_info.get('javascript', 'return ctx.text')
-                pattern = token_info.get('pattern')
-                discard = token_info.get('discard')
-                
-                if token_info.get('capture', False):
-                    continue
-
-                if pattern is None:
-                    raise TypeError('token missing pattern: %s' % token)
-
-                p + f'{group}:[{token}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'
-                buf.append(f'({pattern})')
-                group += len(r.findall(pattern)) + 1
-            p > '},'
-
-            regexps[context] = '|'.join(buf)
-        p > '} // actions'
-        p + ''
-        p < 'const regexps = {'
-        for context, _ in scan_info.contexts.items():
-            p + f'"{context}": /{regexps[context]}/g,'
-        p > '}'
-
-        p + f"""
+    p + f"""
 export function* scan(content, filename) {{
     if (filename === undefined) {{
         filename = '<memory>'
@@ -358,84 +344,112 @@ export function* scan(content, filename) {{
     }}
 }}"""
 
-        states_ids = {}
-        for idx, state in enumerate(parser.__state_list__):
-            states_ids[state] = idx
+    states_ids = {}
+    for idx, state in enumerate(parser.__state_list__):
+        states_ids[state] = idx
 
-        p + ''
-        p < 'export function parse(tokenizer, context) {'
-        p + f'const state_stack = [{states_ids[parser.__state_tree__]}]'
-        p + \
-            f'const token_reader = new TokenReader(tokenizer, {parser.__start_symbol__.name}, {parser.__eof_symbol__.name})'
-        p + 'var lookahead = token_reader.peek()'
+    p + ''
+    p < 'export function parse(tokenizer, context) {'
+    p + f'const state_stack = [{states_ids[parser.__state_tree__]}]'
+    p + f'const token_reader = new TokenReader(tokenizer, {parser.__start_symbol__.name}, {parser.__eof_symbol__.name})'  # nopep8
+    p + 'var lookahead = token_reader.peek()'
 
-        p < 'while(!token_reader.done()) {'
+    p < 'while(!token_reader.done()) {'
 
-        p < 'switch(state_stack[state_stack.length - 1]) {'
-        for state in parser.__state_list__:
-            p < f'case {states_ids[state]}:'
+    p < 'switch(state_stack[state_stack.length - 1]) {'
+    for state in parser.__state_list__:
+        p < f'case {states_ids[state]}:'
 
-            p < 'switch(lookahead[0]) {'
+        p < 'switch(lookahead[0]) {'
 
-            if len(state.branchs) > 0:
-                for ts, st in state.branchs.items():
-                    p + f'case {ts.name}:'
-                    p << f'state_stack.push({states_ids[st]})'
-                    p + 'if (lookahead[0] < 20000) token_reader.read()'
-                    p + 'lookahead = token_reader.peek()'
-                    p >> 'break'
-
-            p < 'default:'
-
-            if state.reduce_rule is not None:
-                if state.reduce_rule.action is None:
-                    p + f'token_reader.consume({len(state.reduce_rule)})'
-                    p + f'token_reader.commit([{state.reduce_rule.symbol}, undefined])'
-                else:
-                    p + 'const args = []'
-                    p + \
-                        f'for (const tv of token_reader.consume({len(state.reduce_rule)})) {{ args.push(tv[1]) }}'
-                    if state.reduce_rule.symbol.name != '__START__':
-                        if 'javascript' not in state.reduce_rule.extra_info:
-                            raise TypeError("rule %s missing javascript action" % state.reduce_rule)
-                        p + \
-                            f'const value = context["{state.reduce_rule.extra_info["javascript"]}"].apply(context, args)'
-                    else:
-                        p + 'const value = args[0]'
-                    p + f'token_reader.commit([{state.reduce_rule.symbol}, value])'
-                p + \
-                    f'state_stack.splice(state_stack.length - {len(state.reduce_rule)}, {len(state.reduce_rule)})'
-                p + 'lookahead = token_reader.top()'
-            else:
-                p + 'if (lookahead[0] < 20000 && lookahead[0]> 10000)'
-                p < '{'
-                p + 'token_reader.discard()'
+        if len(state.branchs) > 0:
+            for ts, st in state.branchs.items():
+                p + f'case {ts.name}:'
+                p << f'state_stack.push({states_ids[st]})'
+                p + 'if (lookahead[0] < 20000) token_reader.read()'
                 p + 'lookahead = token_reader.peek()'
-                p + 'break'
-                p > '}'
+                p >> 'break'
 
-                count = len(state.immediate_tokens)
-                message = ""
+        p < 'default:'
 
-                if count == 1:
-                    message = f', expecting {state.immediate_tokens[0].show_name}'
-                elif count == 2:
-                    message = f', expecting {state.immediate_tokens[0].show_name} or {state.immediate_tokens[1].show_name}'
+        if state.reduce_rule is not None:
+            if state.reduce_rule.action is None:
+                p + f'token_reader.consume({len(state.reduce_rule)})'
+                p + f'token_reader.commit([{state.reduce_rule.symbol}, undefined])'  # nopep8
+            else:
+                p + f'const args = token_reader.consume({len(state.reduce_rule)}).map(tv => tv[1])'   # nopep8
+                if state.reduce_rule.symbol.name != '__START__':
+                    code, func = map(state.reduce_rule.extra_info.get,
+                                     ('javascript', 'javascript_function'))
+                    if code is not None:
+                        p < f'function action({", ".join([f"${x+1}" for x in range(len(state.reduce_rule))])}) {{'
+                        p + code
+                        p > '}'
+                    elif func is not None:
+                        p + f'const action = context["{func}"]'
+                    else:
+                        raise TypeError("rule %s missing javascript action" % state.reduce_rule)  # nopep8
+
+                    p + f'const value = action.apply(context, args)'
+
                 else:
-                    message = f', expecting one of [{" ".join([t.show_name for t in state.immediate_tokens])}]'
-
-                p + 'const [token, value, loc] = lookahead'
-                p + 'var location = ""'
-                p + 'if (loc !== undefined) { location = `${loc.filename}${loc.line}:${loc.column} => ` }'
-                p + f'throw new SyntaxError(`${{location}}unexpected token ${{show_name[token]}}(${{value}}){message}`)'
-                
-            p >> 'break'
-            p > '}'
+                    p + 'const value = args[0]'
+                p + f'token_reader.commit([{state.reduce_rule.symbol}, value])'  # nopep8
+            p + f'state_stack.splice(state_stack.length - {len(state.reduce_rule)}, {len(state.reduce_rule)})'  # nopep8
+            p + 'lookahead = token_reader.top()'
+        else:
+            p + 'if (lookahead[0] < 20000 && lookahead[0]> 10000)'
+            p < '{'
+            p + 'token_reader.discard()'
+            p + 'lookahead = token_reader.peek()'
             p + 'break'
-            p > ''
+            p > '}'
 
+            count = len(state.immediate_tokens)
+            message = ""
+
+            if count == 1:
+                message = f', expecting {state.immediate_tokens[0].show_name}'
+            elif count == 2:
+                message = f', expecting {state.immediate_tokens[0].show_name} or {state.immediate_tokens[1].show_name}'
+            else:
+                message = f', expecting one of [{" ".join([t.show_name for t in state.immediate_tokens])}]'
+
+            p + 'const [token, value, loc] = lookahead'
+            p + 'var location = ""'
+            p + 'if (loc !== undefined) { location = `${loc.filename}${loc.line}:${loc.column} => ` }'  # nopep8
+            p + f'throw new SyntaxError(`${{location}}unexpected token ${{show_name[token]}}(${{value}}){message}`)'  # nopep8
+
+        p >> 'break'
         p > '}'
-        p > '}'  # while
-        p + 'return token_reader.pop()[1]'
-        p > '}'  # function
+        p + 'break'
+        p > ''
 
+    p > '}'
+    p > '}'  # while
+    p + 'return token_reader.pop()[1]'
+    p > '}'  # function
+
+
+class JavaScript:
+
+    def __init__(self, code=None, function=None):
+        self._js_info = {}
+        if code is not None:
+            self._js_info['javascript'] = code
+
+        if function is not None:
+            self._js_info['javascript_function'] = function
+
+    def __call__(self, symbol):
+        if isinstance(symbol, SymbolInfo):
+            symbol.extra_info.update(self._js_info)
+            return symbol
+        elif isinstance(symbol, TokenInfo):
+            symbol.update(self._js_info)
+            return symbol
+        raise TypeError('unsupported target %s' % symbol)
+
+    @staticmethod
+    def generate(parser, file):
+        return _generate(parser, file)

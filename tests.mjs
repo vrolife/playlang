@@ -2,22 +2,13 @@ import { scan, parse } from './parser.mjs'
 
 const context = {
     x: 3,
-    expr_number(num) {
-        return Number(num)
-    },
     expr_name(name) {
         return this[name]
-    },
-    expr_string(s) {
-        return s
     },
     expr_expr_opr_expr(expr1, opr, expr2) {
         return eval(`${expr1}${opr}${expr2}`)
     },
     expr_name_eq_expr(name, eq, expr) {
-        return expr
-    },
-    expr_lpar_expr_rpar(l, expr, r) {
         return expr
     },
     expr_minus_expr(_, expr) {

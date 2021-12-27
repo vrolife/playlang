@@ -79,39 +79,39 @@ class ParserCalc(metaclass=Parser):
     def MISMATCH(context):
         raise MismatchError(f'missmatch: {context.text}')
 
-    @JavaScript('expr_number')
+    @JavaScript('return $1')
     @Rule(NUMBER)
     def EXPR(self, value):
         self._steps.append(value)
         return value
 
-    @JavaScript('expr_name')
+    @JavaScript(function='expr_name')
     @Rule(NAME)
     @staticmethod
     def EXPR(self, name):
         self._steps.append(name)
         return self._names[name]
 
-    @JavaScript('expr_string')
+    @JavaScript('return $1')
     @Rule(STRING)
     def EXPR(self, s):
         self._steps.append(s)
         return s
 
-    @JavaScript('expr_minus_expr')
+    @JavaScript(function='expr_minus_expr')
     @Rule(MINUS, EXPR, precedence=UMINUS)
     def EXPR(self, l, expr):
         self._steps.append(f'-{expr}')
         return -expr
 
-    @JavaScript('expr_lpar_expr_rpar')
+    @JavaScript('return $2')
     @Rule(LPAR, EXPR, RPAR)
     def EXPR(self, l, expr, r):
         self._steps.append(f'({expr})')
         return expr
 
     @ShowName('Expression')
-    @JavaScript('expr_expr_opr_expr')
+    @JavaScript(function='expr_expr_opr_expr')
     @Rule(EXPR, PLUS, EXPR)
     @Rule(EXPR, MINUS, EXPR)
     @Rule(EXPR, TIMES, EXPR)
@@ -121,7 +121,7 @@ class ParserCalc(metaclass=Parser):
         self._steps.append(code)
         return eval(code)
 
-    @JavaScript('expr_name_eq_expr')
+    @JavaScript(function='expr_name_eq_expr')
     @Rule(NAME, EQUALS, EXPR)
     def EXPR(self, name, _, expr):
         self._steps.append(f'{name}={expr}')

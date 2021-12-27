@@ -101,7 +101,7 @@ def _parse(token_reader, state_stack, context):
                     token_reader.discard()
                     lookahead = token_reader.peek()
                     continue
-                
+
                 count = len(current_state.immediate_tokens)
                 location = ""
                 message = ""
@@ -229,8 +229,11 @@ class Parser(type):
 
         state_tree, start_wrapper = syntax.generate(start_symbol, eof_symbol)
 
+        state_list = list(syntax._merged_states)
+        state_list.sort(key=lambda s: ''.join([str(t) for t in s.tokens]))
+
         dic['__state_tree__'] = state_tree
-        dic['__state_list__'] = syntax._merged_states
+        dic['__state_list__'] = state_list
         dic['__symbol_list__'] = syntax._defined_symbols.values()
         dic['__start_symbol__'] = start_wrapper
 
