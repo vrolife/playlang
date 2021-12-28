@@ -13,28 +13,24 @@ class TerminalPrecedence:
     ASSOC_NONE = 3
 
     def __init__(self, precedence, assoc=ASSOC_SHIFT):
-        self._precedence = precedence
-        self._associative = assoc
+        self.precedence = precedence
+        self.associative = assoc
 
     def __repr__(self):
-        assoc = ['Shift', 'Left', 'Right', 'None'][self._associative]
-        return f'Precedence({self._precedence}, {assoc})'
+        assoc = ['Shift', 'Left', 'Right', 'None'][self.associative]
+        return f'Precedence({self.precedence}, {assoc})'
 
     def __gt__(self, other):
-        return self._precedence.__gt__(other._precedence)
+        return self.precedence.__gt__(other.precedence)
 
     def __ge__(self, other):
-        return self._precedence.__ge__(other._precedence)
+        return self.precedence.__ge__(other.precedence)
 
     def __lt__(self, other):
-        return self._precedence.__lt__(other._precedence)
+        return self.precedence.__lt__(other.precedence)
 
     def __le__(self, other):
-        return self._precedence.__le__(other._precedence)
-
-    @property
-    def precedence(self):
-        return self._precedence
+        return self.precedence.__le__(other.precedence)
 
 
 class Terminal(collections.UserDict):
@@ -199,7 +195,7 @@ class SymbolRule:
 class State:
     def __init__(self):
         # the rule generate this state
-        self._bind_rule = None
+        self.bind_rule = None
 
         # reduce in this rule. possible different to bind_rule after merged
         self.reduce_rule = None
@@ -331,7 +327,8 @@ def Token(pattern=None,
         pattern ([type], optional): regexp for this token. Defaults to None.
         discard (bool, optional): read and discard by scanner. Defaults to False.
         ignorable (bool, optional): ignore this token if it cause a syntax error. Defaults to False.
-        eof (bool, optional): this token is a End-Of-File token. arguemnt `pattern will be ignore`. Defaults to False.
+        eof (bool, optional): this token is a End-Of-File token.
+                              arguemnt `pattern will be ignore`. Defaults to False.
         action (callable, optional) scanner action. Defaults to None.
         show_name (callable, optional) human readable name. Defaults to None.
     Returns:
@@ -364,13 +361,14 @@ class Start:
 
 
 class Scan:
-    def __init__(self, *tokens, name='__default__', capture: Terminal=None):
+    def __init__(self, *tokens, name='__default__', capture: Terminal = None):
         self.tokens = tokens
         self.name = name
         if capture is not None:
             capture.data['capture'] = True
             self.tokens = list(tokens)
             self.tokens.append(capture)
+
 
 class StaticField:
     def create(self, parser):

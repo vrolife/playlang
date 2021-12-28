@@ -1,7 +1,7 @@
 # pylint: disable=pointless-statement,expression-not-assigned,line-too-long
 
 import re
-from playlang.classes import Terminal, Symbol, SymbolInfo, TokenInfo
+from playlang.classes import SymbolInfo, TokenInfo
 
 
 _CLASSES = """
@@ -207,7 +207,7 @@ def _generate(parser, file):
 
     next_tid = 1
 
-    p + f'const __EOF__ = {next_tid}' # nopep8
+    p + f'const __EOF__ = {next_tid}'  # nopep8
     show_name[next_tid] = parser.__eof_symbol__.show_name
     next_tid += 1
 
@@ -218,7 +218,7 @@ def _generate(parser, file):
 
     for token in all_tokens:
         tid = next_tid + (10000 if token.ignorable else 0)
-        p + f'const {token.fullname} = {tid}' # nopep8
+        p + f'const {token.fullname} = {tid}'  # nopep8
         show_name[tid] = token.show_name
         next_tid += 1
 
@@ -237,7 +237,7 @@ def _generate(parser, file):
     for tid, name in show_name.items():
         p + f'{tid}: "{name}",'
     p > '}'
-    
+
     p + ''
     p < 'const capture = {'
     for context, tokens in scan_info.items():

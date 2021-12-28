@@ -1,7 +1,5 @@
 import os
-import sys
 import tempfile
-import shutil
 import unittest
 from playlang.javascript import JavaScript
 from test_py import ParserCalc, ParserListWithTemplate
@@ -54,7 +52,7 @@ class TestJavaScript(unittest.TestCase):
         function assert(code, other) {
             const value = eval(code)
             if (value !== other) {
-                throw Error(`Assertion failed: \`${code}\` => ${value} != ${other}`)
+                throw Error(`Assertion failed: \\`${code}\\` => ${value} != ${other}`)
             }
         }
 
@@ -114,4 +112,3 @@ class TestJavaScript(unittest.TestCase):
 
         """)
         self.assertTrue(status == 0)
-

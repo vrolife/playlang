@@ -7,7 +7,6 @@ import unittest
 from playlang import Parser, Token, Rule, Precedence, Scan, Start,\
     Action, ShowName, Scanner, StaticScanner, \
     ConflictReduceReduceError, ConflictShiftReduceError
-from playlang import javascript
 from playlang.classes import SymbolRule, Terminal
 from playlang.syntex import Syntax
 from playlang.javascript import JavaScript
@@ -302,49 +301,49 @@ class TemplateParser(metaclass=Parser):
     @JavaScript('return ctx => ctx.get_prev_instance()[$2]')
     @Rule(DOT, NAME)
     @staticmethod
-    def REF(self, _, name):
+    def REF(ctx, _, name):
         return lambda ctx: ctx.get_prev_instance().get(name)
 
     @JavaScript('return ctx => ctx.get_instance($2)')
     @Rule(NAME)
     @staticmethod
-    def REF(self, name):
+    def REF(ctx, name):
         return lambda ctx: ctx.get_instance(name)
 
     @JavaScript('return ctx => $1(ctx)[$3]')
     @Rule(REF, DOT, NAME)
     @staticmethod
-    def REF(self, ref, _, name):
+    def REF(ctx, ref, _, name):
         return lambda ctx: ref(ctx).get(name)
 
     @JavaScript('return ctx => $1(ctx)[$3]')
     @Rule(REF, LB, INTEGER, RB)
     @staticmethod
-    def REF(self, ref, lb, idx, rb):
+    def REF(ctx, ref, lb, idx, rb):
         return lambda ctx: ref(ctx)[idx]
 
     @JavaScript('return $1')
     @Rule(REF)
     @staticmethod
-    def COMPONENT(self, ref):
+    def COMPONENT(ctx, ref):
         return ref
 
     @JavaScript('return ctx => $1')
     @Rule(TEXT)
     @staticmethod
-    def COMPONENT(self, text):
+    def COMPONENT(ctx, text):
         return lambda ctx: text
 
     @JavaScript('return [$1]')
     @Rule(COMPONENT)
     @staticmethod
-    def ASSEMBLY(self, component):
+    def ASSEMBLY(ctx, component):
         return [component]
 
     @JavaScript('$1.push($2); return $1')
     @Rule(ASSEMBLY, COMPONENT)
     @staticmethod
-    def ASSEMBLY(self, lst, text):
+    def ASSEMBLY(ctx, lst, text):
         lst.append(text)
         return lst
 
@@ -606,7 +605,8 @@ class TestScanner(unittest.TestCase):
 
         scan_info = {
             '__default__': ['DIGITS', 'QUOTE', 'NEWLINE', 'WHITE', 'MISMATCH'],
-            'string': ['STRING_QUOTE', 'STRING_ESCAPE', 'STRING_NEWLINE', 'STRING_CHAR', 'MISMATCH', 'STRING']
+            'string': ['STRING_QUOTE', 'STRING_ESCAPE', 'STRING_NEWLINE',
+                       'STRING_CHAR', 'MISMATCH', 'STRING']
         }
 
         tokens = {

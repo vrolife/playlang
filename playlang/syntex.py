@@ -1,4 +1,4 @@
-from playlang.errors import *
+from playlang.errors import ConflictReduceReduceError, ConflictShiftReduceError
 from playlang.classes import TerminalPrecedence, Symbol, SymbolRule, Terminal, State
 
 
@@ -64,7 +64,8 @@ class Syntax:
 
         token = self._defined_tokens.get(name)
         if token is None:
-            token = Terminal(name, fullname, precedence=self._current_precedence)
+            token = Terminal(
+                name, fullname, precedence=self._current_precedence)
             self._defined_tokens[name] = token
 
         return token
@@ -95,28 +96,28 @@ class Syntax:
 
         while len(rules) > 0:
             rule = rules.pop()
-            iter = rule.__iter__()
-            self._generate_for_symbol(symbol, state, rule, iter)
+            rule_iter = rule.__iter__()
+            self._generate_for_symbol(symbol, state, rule, rule_iter)
 
         return state
 
-    def _generate_for_symbol(self, symbol, state, rule, iter):
+    def _generate_for_symbol(self, symbol, state, rule, rule_iter):
         try:
-            component = iter.__next__()
+            component = rule_iter.__next__()
 
             if component not in state:
                 branch = State()
-                branch._bind_rule = rule
+                branch.bind_rule = rule
                 state.set_branch(component, branch)
             else:
                 branch = state.get_branch(component)
 
                 # rebind
-                if rule.precedence > branch._bind_rule.precedence:
-                    branch._bind_rule = rule
+                if rule.precedence > branch.bind_rule.precedence:
+                    branch.bind_rule = rule
 
             # try next
-            self._generate_for_symbol(symbol, branch, rule, iter)
+            self._generate_for_symbol(symbol, branch, rule, rule_iter)
 
             if isinstance(component, Symbol):
                 self._generate_state_tree(component)
@@ -124,15 +125,15 @@ class Syntax:
             state.reduce_rule = rule
 
     def _should_reduce(self, reduce, shift):
-        if reduce._precedence > shift._precedence:
+        if reduce.precedence > shift.precedence:
             return True
-        if reduce._precedence < shift._precedence:
+        if reduce.precedence < shift.precedence:
             return False
         else:  # ==
-            if reduce._associative != shift._associative:
+            if reduce.associative != shift.associative:
                 raise ConflictShiftReduceError('shift/reduce conflict')
 
-            if reduce._associative == TerminalPrecedence.ASSOC_LEFT:
+            if reduce.associative == TerminalPrecedence.ASSOC_LEFT:
                 return True
 
             if not self._auto_shift:
@@ -142,9 +143,9 @@ class Syntax:
             return False
 
     def _should_override(self, to, _from):
-        if to._precedence > _from._precedence:
+        if to.precedence > _from.precedence:
             return True
-        if to._precedence < _from._precedence:
+        if to.precedence < _from.precedence:
             return False
         else:  # ==
             raise ConflictReduceReduceError('reduce/reduce conflict')
@@ -158,7 +159,8 @@ class Syntax:
                 # precedence ?
                 dest_state.reduce_rule = source_state.reduce_rule
             elif dest_state.reduce_rule is not source_state.reduce_rule:
-                if self._should_override(dest_state.reduce_rule.precedence, source_state.reduce_rule.precedence):
+                if self._should_override(dest_state.reduce_rule.precedence,
+                                         source_state.reduce_rule.precedence):
                     dest_state.reduce_rule = source_state.reduce_rule
 
         for component, branch in source_state:
@@ -167,8 +169,8 @@ class Syntax:
 
                 if exist_state.reduce_rule is not None:
                     # see self._generate_for_symbol: #rebind
-                    if self._should_reduce(exist_state._bind_rule.precedence,
-                                           branch._bind_rule.precedence):
+                    if self._should_reduce(exist_state.bind_rule.precedence,
+                                           branch.bind_rule.precedence):
                         # discard, we don't merge a low precedence state to high precedence state
                         continue
 
@@ -177,7 +179,7 @@ class Syntax:
             else:
                 if dest_state.reduce_rule is not None:
                     if self._should_reduce(dest_state.reduce_rule.precedence,
-                                           branch._bind_rule.precedence):
+                                           branch.bind_rule.precedence):
                         # percent extend state chain with low precedence state
                         continue
                 dest_state.set_branch(component, branch)

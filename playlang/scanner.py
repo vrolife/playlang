@@ -1,5 +1,5 @@
 import re
-from playlang.classes import *
+from playlang.classes import Terminal, Location, TokenValue, StaticField
 
 
 class TrailingJunk(Exception):
@@ -16,7 +16,7 @@ class ContextError(Exception):
 
 class Scanner:
     def __init__(self, clazz, default_action):
-        self._regexps = {}
+        self.regexps = {}
         self._default_action = default_action
         self._actions = {}
         self._capture = {}
@@ -33,7 +33,8 @@ class Scanner:
                     continue
 
                 if token.pattern is None:
-                    raise TypeError(f'token "{token.fullname}" missing pattern')
+                    raise TypeError(
+                        f'token "{token.fullname}" missing pattern')
 
                 if not isinstance(token.pattern, (str, re.Pattern)):
                     raise TypeError(
@@ -49,8 +50,8 @@ class Scanner:
             for token in tokens:
                 pairs.append((token.fullname, token.data.get('pattern')))
 
-            self._regexps[context] = re.compile(
-                '|'.join(['(?P<%s>%s)' % pair for pair in pairs]))
+            self.regexps[context] = re.compile(
+                '|'.join([f'(?P<{n}>{r})' for n, r in pairs]))
 
     def _convert(self, token: Terminal):
         action, discard = map(token.data.get, ('action', 'discard'))
@@ -116,7 +117,7 @@ class Scanner:
 
             def enter(self, name, value=None):
                 nonlocal stack
-                stack.append(Context(name, this._regexps[name], value))
+                stack.append(Context(name, this.regexps[name], value))
                 return self
 
             def leave(self):
@@ -127,7 +128,7 @@ class Scanner:
                 return self
 
         stack.append(
-            Context('__default__', self._regexps['__default__'], None))
+            Context('__default__', self.regexps['__default__'], None))
 
         pos = 0
         while True:
@@ -152,8 +153,6 @@ class Scanner:
 
         if pos != len(string) and not ignore_tailing:
             raise TrailingJunk(location)
-            
-        # raise StopIteration
 
 
 class StaticScanner(StaticField):
