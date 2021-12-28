@@ -96,18 +96,19 @@ class Syntax:
 
         while len(rules) > 0:
             rule = rules.pop()
-            rule_iter = rule.__iter__()
+            rule_iter = enumerate(rule.__iter__())
             self._generate_for_symbol(symbol, state, rule, rule_iter)
 
         return state
 
     def _generate_for_symbol(self, symbol, state, rule, rule_iter):
         try:
-            component = rule_iter.__next__()
+            index, component = rule_iter.__next__()
 
             if component not in state:
                 branch = State()
                 branch.bind_rule = rule
+                branch.bind_index = index
                 state.set_branch(component, branch)
             else:
                 branch = state.get_branch(component)

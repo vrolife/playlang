@@ -216,6 +216,9 @@ def _generate(parser, file):
         for token in tokens:
             all_tokens.add(token)
 
+    all_tokens = list(all_tokens)
+    all_tokens.sort(key=lambda t: t.fullname)
+
     for token in all_tokens:
         tid = next_tid + (10000 if token.ignorable else 0)
         p + f'const {token.fullname} = {tid}'  # nopep8
@@ -345,9 +348,12 @@ export function* scan(content, filename) {{
         throw new TrailingJunk(location)
     }}
 }}"""
+    
+    state_list = list(parser.__state_list__)
+    state_list.sort(key=lambda s: str(s.bind_rule) + str(s.bind_index))
 
     states_ids = {}
-    for idx, state in enumerate(parser.__state_list__):
+    for idx, state in enumerate(state_list):
         states_ids[state] = idx
 
     p + ''
@@ -359,7 +365,7 @@ export function* scan(content, filename) {{
     p < 'while(!token_reader.done()) {'
 
     p < 'switch(state_stack[state_stack.length - 1]) {'
-    for state in parser.__state_list__:
+    for state in state_list:
         p < f'case {states_ids[state]}:'
 
         p < 'switch(lookahead[0]) {'

@@ -197,6 +197,9 @@ class State:
         # the rule generate this state
         self.bind_rule = None
 
+        # for sort
+        self.bind_index = None
+
         # reduce in this rule. possible different to bind_rule after merged
         self.reduce_rule = None
 

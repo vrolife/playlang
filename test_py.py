@@ -283,7 +283,6 @@ class TemplateParser(metaclass=Parser):
 
     INTEGER = Token(r'[0-9]+\b',
                     action=int,
-                    context="expression",
                     javascript='return parseInt(ctx.text)')
 
     DOT = Token(r'\.')
@@ -408,8 +407,8 @@ class TestTemplateParser(unittest.TestCase):
             'foo': 'bar'
         })
 
-        self.assertEqual(parser.to_string('${.hello}', context), 'world!')
         self.assertEqual(parser.to_string('${foo}', context), 'bar')
+        self.assertEqual(parser.to_string('${.hello}', context), 'world!')
         self.assertEqual(parser.to_string(
             '${.node.array[1].name}', context), 'ya')
         self.assertEqual(parser.to_string('A${.hello}B', context), 'Aworld!B')
