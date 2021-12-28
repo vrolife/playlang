@@ -1,84 +1,86 @@
-import enum
 from playlang.errors import *
-from playlang.objects import _Precedence, Symbol, Terminal, State
+from playlang.classes import TerminalPrecedence, Symbol, SymbolRule, Terminal, State
 
 
 class Syntax:
-    def __init__(self, auto_shift=True):
+    def __init__(self, name, auto_shift=True):
+        self.name = name
         self._auto_shift = auto_shift
         self._defined_symbols = {}
-        self._defined_tokens = set()
+        self._defined_tokens = {}
         self._generated_states = {}
         self._pending_rules = {}
         self._merged_states = set()
-        self._current_precedence = _Precedence(0)
+        self._current_precedence = TerminalPrecedence(0)
 
-    def __call__(self, *rule, precedence=None, name=None):
-        def dec(action):
-            nonlocal name
-            if isinstance(action, Symbol):
-                symbol = action
-                action.add_rule(
-                    rule, action=symbol.rules[-1].action, precedence=precedence)
-                return action
-            else:
-                if name is None:
-                    name = getattr(action, '__name__', None)
-                    if name is None:
-                        raise TypeError(f'unable to get the name of {action}')
+        self.__EOF__ = self.terminal('__EOF__', '__EOF__')
+        self.__EOF__.data['show_name'] = 'End-Of-File'
+        self.__START__ = self.symbol('__START__', '__START__')
 
-                symbol = self.symbol(name)
-                symbol.add_rule(rule, action=action, precedence=precedence)
-            return symbol
+    @property
+    def tokens(self):
+        return self._defined_tokens
 
-        return dec
+    @property
+    def symbols(self):
+        return self._defined_symbols
 
-    def precedence(self):
-        self._current_precedence = _Precedence(
+    def increase(self):
+        self._current_precedence = TerminalPrecedence(
             self._current_precedence.precedence + 1)
 
     def left(self):
-        self._current_precedence = _Precedence(
-            self._current_precedence.precedence + 1, _Precedence.ASSOC_LEFT)
+        self._current_precedence = TerminalPrecedence(
+            self._current_precedence.precedence + 1, TerminalPrecedence.ASSOC_LEFT)
 
     def right(self):
-        self._current_precedence = _Precedence(
-            self._current_precedence.precedence + 1, _Precedence.ASSOC_RIGHT)
+        self._current_precedence = TerminalPrecedence(
+            self._current_precedence.precedence + 1, TerminalPrecedence.ASSOC_RIGHT)
 
     def nonassoc(self):
-        self._current_precedence = _Precedence(
-            self._current_precedence.precedence + 1, _Precedence.ASSOC_NONE)
+        self._current_precedence = TerminalPrecedence(
+            self._current_precedence.precedence + 1, TerminalPrecedence.ASSOC_NONE)
 
-    def symbol(self, name, **kwargs):
+    def symbol(self, name, fullname=None):
         if name is None:
             raise TypeError('symbol name must be not none')
 
+        if fullname is None:
+            fullname = f'{self.name}_{name}'.upper()
+
         symbol = self._defined_symbols.get(name)
         if symbol is None:
-            symbol = Symbol(name, **kwargs)
+            symbol = Symbol(name, fullname)
             self._defined_symbols[name] = symbol
 
         return symbol
 
-    def token(self, name, **kwargs):
-        if name in self._defined_tokens:
-            raise TypeError(f'duplicate token {name}')
+    def terminal(self, name, fullname=None):
+        if name is None:
+            raise TypeError('token name must be not none')
 
-        self._defined_tokens.add(name)
-        return Terminal(name, precedence=self._current_precedence, **kwargs)
+        if fullname is None:
+            fullname = f'{self.name}_{name}'.upper()
 
-    def generate(self, start_symbol, eof_symbol):
-        def reduce(v, _):
+        token = self._defined_tokens.get(name)
+        if token is None:
+            token = Terminal(name, fullname, precedence=self._current_precedence)
+            self._defined_tokens[name] = token
+
+        return token
+
+    def generate(self, start_symbol):
+        def reduce_start_symbol(ctx, v, _):
             return v
 
-        start_wrapper = Symbol(name='__START__')
-        start_wrapper.add_rule([start_symbol, eof_symbol], action=reduce)
+        self.__START__.rules.append(SymbolRule(
+            self.__START__, [start_symbol, self.__EOF__], reduce_start_symbol))
 
-        root_state = self._generate_state_tree(start_wrapper)
+        root_state = self._generate_state_tree(self.__START__)
 
         self._merge_state_tree(root_state)
 
-        return root_state, start_wrapper
+        return root_state, self.__START__
 
     def _generate_state_tree(self, symbol):
         state = self._generated_states.get(symbol)
@@ -100,14 +102,14 @@ class Syntax:
 
     def _generate_for_symbol(self, symbol, state, rule, iter):
         try:
-            element = iter.__next__()
+            component = iter.__next__()
 
-            if element not in state:
+            if component not in state:
                 branch = State()
                 branch._bind_rule = rule
-                state.set_branch(element, branch)
+                state.set_branch(component, branch)
             else:
-                branch = state.get_branch(element)
+                branch = state.get_branch(component)
 
                 # rebind
                 if rule.precedence > branch._bind_rule.precedence:
@@ -116,8 +118,8 @@ class Syntax:
             # try next
             self._generate_for_symbol(symbol, branch, rule, iter)
 
-            if isinstance(element, Symbol):
-                self._generate_state_tree(element)
+            if isinstance(component, Symbol):
+                self._generate_state_tree(component)
         except StopIteration:
             state.reduce_rule = rule
 
@@ -130,7 +132,7 @@ class Syntax:
             if reduce._associative != shift._associative:
                 raise ConflictShiftReduceError('shift/reduce conflict')
 
-            if reduce._associative == _Precedence.ASSOC_LEFT:
+            if reduce._associative == TerminalPrecedence.ASSOC_LEFT:
                 return True
 
             if not self._auto_shift:
@@ -147,21 +149,21 @@ class Syntax:
         else:  # ==
             raise ConflictReduceReduceError('reduce/reduce conflict')
 
-    def _merge_state(self, state, element_state):
-        if state is element_state:
+    def _merge_state(self, dest_state, source_state):
+        if dest_state is source_state:
             return
 
-        if element_state.reduce_rule is not None:
-            if state.reduce_rule is None:
+        if source_state.reduce_rule is not None:
+            if dest_state.reduce_rule is None:
                 # precedence ?
-                state.reduce_rule = element_state.reduce_rule
-            elif state.reduce_rule is not element_state.reduce_rule:
-                if self._should_override(state.reduce_rule.precedence, element_state.reduce_rule.precedence):
-                    state.reduce_rule = element_state.reduce_rule
+                dest_state.reduce_rule = source_state.reduce_rule
+            elif dest_state.reduce_rule is not source_state.reduce_rule:
+                if self._should_override(dest_state.reduce_rule.precedence, source_state.reduce_rule.precedence):
+                    dest_state.reduce_rule = source_state.reduce_rule
 
-        for next_element, branch in element_state:
-            if next_element in state:
-                exist_state = state.get_branch(next_element)
+        for component, branch in source_state:
+            if component in dest_state:
+                exist_state = dest_state.get_branch(component)
 
                 if exist_state.reduce_rule is not None:
                     # see self._generate_for_symbol: #rebind
@@ -173,21 +175,20 @@ class Syntax:
                 self._merge_state(exist_state, branch)
 
             else:
-                if state.reduce_rule is not None:
-                    if self._should_reduce(state.reduce_rule.precedence,
+                if dest_state.reduce_rule is not None:
+                    if self._should_reduce(dest_state.reduce_rule.precedence,
                                            branch._bind_rule.precedence):
                         # percent extend state chain with low precedence state
                         continue
-                state.set_branch(next_element, branch)
+                dest_state.set_branch(component, branch)
 
     def _merge_state_tree(self, state):
         state._copy_tokens()
-        for element, _ in state:
-            if isinstance(element, Symbol):
-                element_state = self._generated_states[element]
-                self._merge_state(state, element_state)
+        for component, _ in state:
+            if isinstance(component, Symbol):
+                self._merge_state(state, self._generated_states[component])
 
         self._merged_states.add(state)
-        for element, branch in state:
+        for component, branch in state:
             if branch not in self._merged_states:
                 self._merge_state_tree(branch)

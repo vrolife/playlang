@@ -19,22 +19,20 @@ generate_javascript:
     paths:
       - .js
   script:
-    - mkdir .js
-    - python test_js.py ./.js
-    - cp tests.mjs ./.js
+    - EXPORT_DIR='.js' python -m unittest test_js.py
 
 test_javascript:
   stage: test_javascript
   image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/node:14
   script:
-    - (cd .js && node tests.mjs)
+    - for CLS in `ls .js`; do (cd .js/$CLS; node tests.mjs); done
 
 test_python:
   stage: test_python
   image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/python:3.7
   script:
     - python -V
-    - python -m unittest tests.py
+    - python -m unittest test_py.py
 
 upload:
   stage: upload

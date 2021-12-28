@@ -1,13 +1,14 @@
+# pylint: disable=pointless-statement,expression-not-assigned,line-too-long
+
 import re
-from playlang.syntex import State
-from playlang.api import TokenInfo, SymbolInfo, ScanInfo
+from playlang.classes import Terminal, Symbol, SymbolInfo, TokenInfo
+
 
 _CLASSES = """
 class TokenReader {
-    constructor(tokenizer, start, eof) {
+    constructor(tokenizer, start) {
         this._tokenizer = tokenizer
         this._start = start
-        this._eof = eof
         this._stack = []
         this._next_token = undefined
     }
@@ -15,7 +16,7 @@ class TokenReader {
     _read() {
         const {done, value} = this._tokenizer.next()
         if (done) {
-            return [this._eof, undefined, undefined]
+            return [__EOF__, undefined, undefined]
         }
         return value
     }
@@ -194,58 +195,58 @@ class Printer:
 
 
 def _generate(parser, file):
-    scan_info = parser.__scan_info__  # type: ScanInfo
+    scan_info = parser.__scan_info__  # type: dict
     p = Printer(file)
     p + '// generated code'
 
     p + _CLASSES
 
-    symbol_map = {}
+    show_name = {}
 
-    idx = 1
-    for token, token_info in scan_info.tokens.items():
-        if token_info.get('ignorable', False):
-            symbol_map[token] = idx + 10000
-        else:
-            symbol_map[token] = idx
-        idx += 1
+    # generate ids
 
-    # TODO ignorable
-    symbol_map[parser.__eof_symbol__] = idx
-    idx += 1
+    next_tid = 1
 
-    idx = 20000
-    symbol_map[parser.__start_symbol__] = idx
-    idx += 1
+    p + f'const __EOF__ = {next_tid}' # nopep8
+    show_name[next_tid] = parser.__eof_symbol__.show_name
+    next_tid += 1
 
-    for symbol in parser.__symbol_list__:
-        symbol_map[symbol] = idx
-        idx += 1
+    all_tokens = set()
+    for _, tokens in scan_info.items():
+        for token in tokens:
+            all_tokens.add(token)
 
-    for sym, idx in symbol_map.items():
-        p + f'const {sym} = {idx}'
+    for token in all_tokens:
+        tid = next_tid + (10000 if token.ignorable else 0)
+        p + f'const {token.fullname} = {tid}' # nopep8
+        show_name[tid] = token.show_name
+        next_tid += 1
+
+    assert next_tid < 20000
+    next_tid = 20000
+
+    for symbol in parser.__symbols__:
+        p + f'const {symbol.fullname} = {next_tid}'
+        show_name[tid] = symbol.show_name
+        next_tid += 1
+
+    # generate show name
 
     p + ''
     p < 'const show_name = {'
-    for sym, idx in symbol_map.items():
-        if isinstance(sym, str):
-            ti = scan_info.tokens[sym]
-            name = ti.get('show_name', sym)
-        else:
-            name = sym.show_name
-        p + f'{idx}: "{name}",'
+    for tid, name in show_name.items():
+        p + f'{tid}: "{name}",'
     p > '}'
-
+    
     p + ''
     p < 'const capture = {'
-    for name, token_info in scan_info.tokens.items():
-        pattern, capture = map(token_info.get, ('pattern', 'capture'))
-        action = token_info.get('javascript', 'return ctx.text')
-        discard = token_info.get('discard')
-
-        if capture is not None:
-            p + f'"{capture}": [{name}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'  # nopep8
-
+    for context, tokens in scan_info.items():
+        for token in tokens:
+            if token.capture:
+                pattern, discard, fullname = map(
+                    token.data.get, ('pattern', 'discard', 'fullname'))
+                action = token.data.get('javascript', 'return ctx.text')
+                p + f'"{context}": [{fullname}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'  # nopep8
     p > '}'
 
     r = re.compile(r'(?:[^\\]|^)\(')
@@ -253,24 +254,23 @@ def _generate(parser, file):
     regexps = {}
     p + ''
     p < 'const actions = {'
-    for context, tokens in scan_info.contexts.items():
+    for context, tokens in scan_info.items():
         buf = []
         group = 1
 
         p < f'"{context}": {{'
         for token in tokens:
-            token_info = scan_info.tokens[str(token)]
-            action = token_info.get('javascript', 'return ctx.text')
-            pattern = token_info.get('pattern')
-            discard = token_info.get('discard')
+            action = token.data.get('javascript', 'return ctx.text')
+            pattern, discard, fullname = map(
+                token.data.get, ('pattern', 'discard', 'fullname'))
 
-            if token_info.get('capture', False):
+            if token.capture:
                 continue
 
             if pattern is None:
-                raise TypeError('token missing pattern: %s' % token)
+                raise TypeError(f'token missing pattern: {token}')
 
-            p + f'{group}:[{token}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'  # nopep8
+            p + f'{group}:[{fullname}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'  # nopep8
             buf.append(f'({pattern})')
             group += len(r.findall(pattern)) + 1
         p > '},'
@@ -279,11 +279,11 @@ def _generate(parser, file):
     p > '} // actions'
     p + ''
     p < 'const regexps = {'
-    for context, _ in scan_info.contexts.items():
+    for context, _ in scan_info.items():
         p + f'"{context}": /{regexps[context]}/g,'
     p > '}'
 
-    p + f"""
+    p + """
 export function* scan(content, filename) {{
     if (filename === undefined) {{
         filename = '<memory>'
@@ -353,7 +353,7 @@ export function* scan(content, filename) {{
     p + ''
     p < 'export function parse(tokenizer, context) {'
     p + f'const state_stack = [{states_ids[parser.__state_tree__]}]'
-    p + f'const token_reader = new TokenReader(tokenizer, {parser.__start_symbol__.name}, {parser.__eof_symbol__.name})'  # nopep8
+    p + f'const token_reader = new TokenReader(tokenizer, {parser.__start_symbol__.name})'  # nopep8
     p + 'var lookahead = token_reader.peek()'
 
     p < 'while(!token_reader.done()) {'
@@ -366,7 +366,7 @@ export function* scan(content, filename) {{
 
         if len(state.branchs) > 0:
             for ts, st in state.branchs.items():
-                p + f'case {ts.name}:'
+                p + f'case {ts.fullname}:'
                 p << f'state_stack.push({states_ids[st]})'
                 p + 'if (lookahead[0] < 20000) token_reader.read()'
                 p + 'lookahead = token_reader.peek()'
@@ -375,9 +375,11 @@ export function* scan(content, filename) {{
         p < 'default:'
 
         if state.reduce_rule is not None:
+            fullname = state.reduce_rule.symbol.fullname
+
             if state.reduce_rule.action is None:
                 p + f'token_reader.consume({len(state.reduce_rule)})'
-                p + f'token_reader.commit([{state.reduce_rule.symbol}, undefined])'  # nopep8
+                p + f'token_reader.commit([{fullname}, undefined])'  # nopep8
             else:
                 p + f'const args = token_reader.consume({len(state.reduce_rule)}).map(tv => tv[1])'   # nopep8
                 if state.reduce_rule.symbol.name != '__START__':
@@ -390,13 +392,13 @@ export function* scan(content, filename) {{
                     elif func is not None:
                         p + f'const action = context["{func}"]'
                     else:
-                        raise TypeError("rule %s missing javascript action" % state.reduce_rule)  # nopep8
+                        raise TypeError(f"rule {state.reduce_rule} missing javascript action")  # nopep8
 
-                    p + f'const value = action.apply(context, args)'
+                    p + 'const value = action.apply(context, args)'
 
                 else:
                     p + 'const value = args[0]'
-                p + f'token_reader.commit([{state.reduce_rule.symbol}, value])'  # nopep8
+                p + f'token_reader.commit([{fullname}, value])'  # nopep8
             p + f'state_stack.splice(state_stack.length - {len(state.reduce_rule)}, {len(state.reduce_rule)})'  # nopep8
             p + 'lookahead = token_reader.top()'
         else:
@@ -445,12 +447,12 @@ class JavaScript:
 
     def __call__(self, symbol):
         if isinstance(symbol, SymbolInfo):
-            symbol.extra_info.update(self._js_info)
+            symbol.data.update(self._js_info)
             return symbol
         elif isinstance(symbol, TokenInfo):
-            symbol.update(self._js_info)
+            symbol.data.update(self._js_info)
             return symbol
-        raise TypeError('unsupported target %s' % symbol)
+        raise TypeError(f'unsupported target {symbol}')
 
     @staticmethod
     def generate(parser, file):

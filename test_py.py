@@ -1,9 +1,14 @@
+# pylint: disable=function-redefined
+# pylint: disable=invalid-name
+
 import io
 import logging
 import unittest
-from playlang import *
+from playlang import Parser, Token, Rule, Precedence, Scan, Start,\
+    Action, ShowName, Scanner, StaticScanner, \
+    ConflictReduceReduceError, ConflictShiftReduceError
 from playlang import javascript
-from playlang.objects import *
+from playlang.classes import SymbolRule, Terminal
 from playlang.syntex import Syntax
 from playlang.javascript import JavaScript
 
@@ -11,9 +16,45 @@ logging.basicConfig(level='DEBUG')
 
 
 class MismatchError(Exception):
-    @staticmethod
-    def throw(*args):
-        raise MismatchError(*args)
+    pass
+
+
+def throw(e, *args):
+    raise e(*args)
+
+
+class TestConflict(unittest.TestCase):
+    def test_reduce_reduce(self):
+        syntax = Syntax('TEST')
+
+        A = syntax.terminal('A')
+        B = syntax.terminal('B')
+
+        LIST = syntax.symbol('LIST')
+        LIST.rules.append(SymbolRule(LIST, (A, B, )))
+
+        EXPR = syntax.symbol('EXPR')
+        EXPR.rules.append(SymbolRule(EXPR, (LIST,)))
+        EXPR.rules.append(SymbolRule(EXPR, (A, B)))
+
+        self.assertRaises(ConflictReduceReduceError,
+                          lambda: syntax.generate(EXPR))
+
+    def test_shift_reduce(self):
+        syntax = Syntax('TEST', auto_shift=False)
+
+        A = syntax.terminal('A')
+        B = syntax.terminal('B')
+
+        LIST = syntax.symbol('LIST')
+        LIST.rules.append(SymbolRule(LIST, (A, B,)))
+
+        EXPR = syntax.symbol('EXPR')
+        EXPR.rules.append(SymbolRule(EXPR, (LIST,)))
+        EXPR.rules.append(SymbolRule(EXPR, (A,)))
+
+        self.assertRaises(ConflictShiftReduceError,
+                          lambda: syntax.generate(EXPR))
 
 
 class ParserCalc(metaclass=Parser):
@@ -41,17 +82,13 @@ class ParserCalc(metaclass=Parser):
                          javascript='ctx.leave()')
     STRING_ESCAPE = Token(r'\\"',
                           discard=True,
-                          context='string',
                           action=lambda ctx: ctx.value.write(ctx.text[1]),
                           javascript='ctx.value.push(ctx.text[1])')
     SRTING_CHAR = Token(r'.',
                         discard=True,
-                        context='string',
                         action=lambda ctx: ctx.value.write(ctx.text),
                         javascript='ctx.value.push(ctx.text)')
-    STRING = Token('string',
-                   capture=True,
-                   action=lambda ctx: ctx.value.getvalue(),
+    STRING = Token(action=lambda ctx: ctx.value.getvalue(),
                    javascript='return ctx.value.join("")')
 
     _ = Precedence.Right
@@ -72,42 +109,48 @@ class ParserCalc(metaclass=Parser):
 
     _ = Scan(NUMBER, NAME, EQUALS, PLUS, MINUS, TIMES,
              DIVIDE, LPAR, RPAR, QUOTE, NEWLINE, WHITE, MISMATCH)
-    _ = Scan(STRING_QUOTE, STRING_ESCAPE, SRTING_CHAR, MISMATCH, name="string")
+    _ = Scan(STRING_QUOTE, STRING_ESCAPE, SRTING_CHAR,
+             MISMATCH, name="string", capture=STRING)
 
     @JavaScript('throw Error("missmatch")')
     @Action
+    @staticmethod
     def MISMATCH(context):
         raise MismatchError(f'missmatch: {context.text}')
 
     @JavaScript('return $1')
     @Rule(NUMBER)
-    def EXPR(self, value):
-        self._steps.append(value)
+    @staticmethod
+    def EXPR(context, value):
+        context.steps.append(value)
         return value
 
     @JavaScript(function='expr_name')
     @Rule(NAME)
     @staticmethod
-    def EXPR(self, name):
-        self._steps.append(name)
-        return self._names[name]
+    def EXPR(context, name):
+        context.steps.append(name)
+        return context.names[name]
 
     @JavaScript('return $1')
     @Rule(STRING)
-    def EXPR(self, s):
-        self._steps.append(s)
+    @staticmethod
+    def EXPR(context, s):
+        context.steps.append(s)
         return s
 
     @JavaScript(function='expr_minus_expr')
     @Rule(MINUS, EXPR, precedence=UMINUS)
-    def EXPR(self, l, expr):
-        self._steps.append(f'-{expr}')
+    @staticmethod
+    def EXPR(context, l, expr):
+        context.steps.append(f'-{expr}')
         return -expr
 
     @JavaScript('return $2')
     @Rule(LPAR, EXPR, RPAR)
-    def EXPR(self, l, expr, r):
-        self._steps.append(f'({expr})')
+    @staticmethod
+    def EXPR(context, l, expr, r):
+        context.steps.append(f'({expr})')
         return expr
 
     @ShowName('Expression')
@@ -116,16 +159,18 @@ class ParserCalc(metaclass=Parser):
     @Rule(EXPR, MINUS, EXPR)
     @Rule(EXPR, TIMES, EXPR)
     @Rule(EXPR, DIVIDE, EXPR)
-    def EXPR(self, l_expr, opr, r_expr):
+    @staticmethod
+    def EXPR(context, l_expr, opr, r_expr):
         code = f'{l_expr}{opr}{r_expr}'
-        self._steps.append(code)
-        return eval(code)
+        context.steps.append(code)
+        return eval(code)  # pylint: disable=eval-used
 
     @JavaScript(function='expr_name_eq_expr')
     @Rule(NAME, EQUALS, EXPR)
-    def EXPR(self, name, _, expr):
-        self._steps.append(f'{name}={expr}')
-        self._names[name] = expr
+    @staticmethod
+    def EXPR(context, name, _, expr):
+        context.steps.append(f'{name}={expr}')
+        context.names[name] = expr
         return expr
 
     _ = Start(EXPR)
@@ -133,8 +178,8 @@ class ParserCalc(metaclass=Parser):
     scanner = StaticScanner(default_action=lambda ctx: ctx.step(len(ctx.text)))
 
     def __init__(self):
-        self._names = {}
-        self._steps = []
+        self.names = {}
+        self.steps = []
 
     def parse_string(self, string):
         return ParserCalc.parse(ParserCalc.scanner(string), context=self)
@@ -145,60 +190,60 @@ class TestCalc(unittest.TestCase):
         compiler = ParserCalc()
         result = compiler.parse_string('a=b=3')
         self.assertEqual(result, 3)
-        self.assertListEqual(compiler._steps, [3, 'b=3', 'a=3'])
+        self.assertListEqual(compiler.steps, [3, 'b=3', 'a=3'])
 
     def test_left_associativity(self):
         compiler = ParserCalc()
         result = compiler.parse_string('2+3+4')
         self.assertEqual(result, 9)
-        self.assertListEqual(compiler._steps, [2, 3, '2+3', 4, '5+4'])
+        self.assertListEqual(compiler.steps, [2, 3, '2+3', 4, '5+4'])
 
     def test_reference(self):
         compiler = ParserCalc()
-        compiler._names['a'] = 3
+        compiler.names['a'] = 3
         result = compiler.parse_string('a*4')
         self.assertEqual(result, 12)
-        self.assertListEqual(compiler._steps, ['a', 4, '3*4'])
+        self.assertListEqual(compiler.steps, ['a', 4, '3*4'])
 
     def testprecedence(self):
         compiler = ParserCalc()
         result = compiler.parse_string('2+3*4')
         self.assertEqual(result, 14)
-        self.assertListEqual(compiler._steps, [2, 3, 4, '3*4', '2+12'])
+        self.assertListEqual(compiler.steps, [2, 3, 4, '3*4', '2+12'])
 
     def test_group(self):
         compiler = ParserCalc()
         result = compiler.parse_string('2+(3+4)')
         self.assertEqual(result, 9)
-        self.assertListEqual(compiler._steps, [2, 3, 4, '3+4', '(7)', '2+7'])
+        self.assertListEqual(compiler.steps, [2, 3, 4, '3+4', '(7)', '2+7'])
 
     def test_minus(self):
         compiler = ParserCalc()
         result = compiler.parse_string('-2*3')
         self.assertEqual(result, -6)
-        self.assertListEqual(compiler._steps, [2, '-2', 3, '-2*3'])
+        self.assertListEqual(compiler.steps, [2, '-2', 3, '-2*3'])
 
     def test_assign(self):
         compiler = ParserCalc()
         result = compiler.parse_string('x=1+2*-3')
         self.assertEqual(result, -5)
-        self.assertEqual(compiler._names['x'], -5)
+        self.assertEqual(compiler.names['x'], -5)
         self.assertListEqual(
-            compiler._steps, [1, 2, 3, '-3', '2*-3', '1+-6', 'x=-5'])
+            compiler.steps, [1, 2, 3, '-3', '2*-3', '1+-6', 'x=-5'])
 
     def test_ignorabletoken(self):
         compiler = ParserCalc()
         result = compiler.parse_string('2+3 *4+5')
         self.assertEqual(result, 19)
         self.assertListEqual(
-            compiler._steps, [2, 3, 4, '3*4', '2+12', 5, '14+5'])
+            compiler.steps, [2, 3, 4, '3*4', '2+12', 5, '14+5'])
 
     def test_string(self):
         compiler = ParserCalc()
         result = compiler.parse_string('x="123"')
         self.assertEqual(result, "123")
         self.assertListEqual(
-            compiler._steps, ['123', 'x=123'])
+            compiler.steps, ['123', 'x=123'])
 
     def test_calc2(self):
         compiler = ParserCalc()
@@ -215,40 +260,226 @@ class TestCalc(unittest.TestCase):
             compiler.NAME, compiler.EQUALS, compiler.NUMBER, compiler.PLUS, compiler.NUMBER])
 
 
-class TestConflict(unittest.TestCase):
-    def test_reduce_reduce(self):
-        syntax = Syntax()
-        EOF = syntax.token('__EOF__')
+class TemplateParser(metaclass=Parser):
+    EOF = Token(eof=True)
 
-        A = syntax.token('A')
-        B = syntax.token('B')
+    BEGIN = Token(r'\${',
+                  discard=True,
+                  action=lambda ctx: ctx.enter('expression'),
+                  javascript='ctx.enter("expression")')
 
-        LIST = syntax.symbol('LIST')
-        LIST.add_rule(A, B)
+    TEXT = Token(r'[^\\$]+',
+                 action=lambda ctx: ctx.text,
+                 javascript='return ctx.text')
 
-        EXPR = syntax.symbol('EXPR')
-        EXPR.add_rule(LIST)
-        EXPR.add_rule(A, B)
+    MISMATCH = Token(r'.',
+                     discard=True,
+                     action=lambda ctx: throw(
+                         MismatchError, ctx.location, ctx.text),
+                     javascript='throw Error(`missmatch: ${ctx.text}`)')
 
-        self.assertRaises(ConflictReduceReduceError,
-                          lambda: syntax.generate(EXPR, EOF))
+    NAME = Token(r'[a-zA-Z_]+\w*',
+                 action=lambda ctx: ctx.text,
+                 javascript='return ctx.text')
 
-    def test_shift_reduce(self):
-        syntax = Syntax(auto_shift=False)
-        EOF = syntax.token('__EOF__')
+    INTEGER = Token(r'[0-9]+\b',
+                    action=int,
+                    context="expression",
+                    javascript='return parseInt(ctx.text)')
 
-        A = syntax.token('A')
-        B = syntax.token('B')
+    DOT = Token(r'\.')
+    LB = Token(r'\[')
+    RB = Token(r'\]')
+    END = Token(r'}',
+                discard=True,
+                action=lambda ctx: ctx.leave(),
+                javascript='ctx.leave()')
 
-        LIST = syntax.symbol('LIST')
-        LIST.add_rule(A, B)
+    _ = Scan(BEGIN, TEXT, MISMATCH)
+    expression = Scan(END, NAME, DOT, LB, RB, INTEGER,
+                      MISMATCH, name='expression')
 
-        EXPR = syntax.symbol('EXPR')
-        EXPR.add_rule(LIST)
-        EXPR.add_rule(A)
+    @JavaScript('return ctx => ctx.get_prev_instance()[$2]')
+    @Rule(DOT, NAME)
+    @staticmethod
+    def REF(self, _, name):
+        return lambda ctx: ctx.get_prev_instance().get(name)
 
-        self.assertRaises(ConflictShiftReduceError,
-                          lambda: syntax.generate(EXPR, EOF))
+    @JavaScript('return ctx => ctx.get_instance($2)')
+    @Rule(NAME)
+    @staticmethod
+    def REF(self, name):
+        return lambda ctx: ctx.get_instance(name)
+
+    @JavaScript('return ctx => $1(ctx)[$3]')
+    @Rule(REF, DOT, NAME)
+    @staticmethod
+    def REF(self, ref, _, name):
+        return lambda ctx: ref(ctx).get(name)
+
+    @JavaScript('return ctx => $1(ctx)[$3]')
+    @Rule(REF, LB, INTEGER, RB)
+    @staticmethod
+    def REF(self, ref, lb, idx, rb):
+        return lambda ctx: ref(ctx)[idx]
+
+    @JavaScript('return $1')
+    @Rule(REF)
+    @staticmethod
+    def COMPONENT(self, ref):
+        return ref
+
+    @JavaScript('return ctx => $1')
+    @Rule(TEXT)
+    @staticmethod
+    def COMPONENT(self, text):
+        return lambda ctx: text
+
+    @JavaScript('return [$1]')
+    @Rule(COMPONENT)
+    @staticmethod
+    def ASSEMBLY(self, component):
+        return [component]
+
+    @JavaScript('$1.push($2); return $1')
+    @Rule(ASSEMBLY, COMPONENT)
+    @staticmethod
+    def ASSEMBLY(self, lst, text):
+        lst.append(text)
+        return lst
+
+    _ = Start(ASSEMBLY)
+
+    scan = StaticScanner(default_action=lambda ctx: ctx.step())
+
+    def __init__(self):
+        pass
+
+    def parse_string(self, content):
+        return TemplateParser.parse(TemplateParser.scan(content), context=self)
+
+    def to_string(self, content, context):
+        return ''.join([str(x(context)) for x in self.parse_string(content)])
+
+
+class TestContext:
+    def __init__(self, instances):
+        self._instances = instances
+
+    def get_prev_instance(self):
+        return self._instances.get('prev')
+
+    def get_instance(self, name):
+        return self._instances.get(name)
+
+
+class TestTemplateParser(unittest.TestCase):
+
+    def test_scanner_ref_only(self):
+        c = TemplateParser
+
+        self.assertListEqual([tv.token for tv in c.scan('${.hello}')], [
+            c.DOT,
+            c.NAME,
+        ])
+
+    def test_scanner_text_and_ref(self):
+        c = TemplateParser
+        self.assertListEqual([tv.token for tv in c.scan('A${.hello}B')], [
+            c.TEXT,
+            c.DOT,
+            c.NAME,
+            c.TEXT
+        ])
+
+    def test_ref(self):
+        parser = TemplateParser()
+        context = TestContext({
+            'prev': {
+                'hello': 'world!',
+                'node': {
+                    'array': [
+                        'a',
+                        {
+                            'name': 'ya'
+                        }
+                    ]
+                }
+            },
+            'foo': 'bar'
+        })
+
+        self.assertEqual(parser.to_string('${.hello}', context), 'world!')
+        self.assertEqual(parser.to_string('${foo}', context), 'bar')
+        self.assertEqual(parser.to_string(
+            '${.node.array[1].name}', context), 'ya')
+        self.assertEqual(parser.to_string('A${.hello}B', context), 'Aworld!B')
+
+
+class ParserListWithTemplate(metaclass=Parser):
+    TMP = TemplateParser
+    DIGITS = Token(r'\d',
+                   javascript='return parseInt(ctx.text)')
+    NEWLINE = Token(r'\n+',
+                    discard=True,
+                    action=lambda ctx: ctx.lines(len(ctx.text)),
+                    javascript='ctx.lines(ctx.text.length)')
+    WHITE = Token(r'\s+', discard=True)
+    MISMATCH = Token(r'.',
+                     action=lambda ctx: throw(MismatchError, ctx.text),
+                     javascript='throw Error(`missmatch: ${ctx.text}`)')
+
+    _ = Scan(TMP.BEGIN, DIGITS, NEWLINE, WHITE, MISMATCH)
+    expression = TMP.expression
+
+    @JavaScript('return $1')
+    @Rule(DIGITS)
+    @Rule(TMP.REF)
+    @staticmethod
+    def ITEM(context, val):
+        return val
+
+    @JavaScript('return []')
+    @Rule()
+    @staticmethod
+    def EXPR(context):
+        return []
+
+    @JavaScript('return [$1]')
+    @Rule(ITEM)
+    @staticmethod
+    def EXPR(context, val):
+        return [val]
+
+    @JavaScript('$1.push($2); return $1')
+    @Rule(EXPR, ITEM)
+    @staticmethod
+    def EXPR(context, expr, num):
+        expr.append(num)
+        return expr
+
+    _ = Start(EXPR)
+
+    def __init__(self):
+        self._scanner = Scanner(
+            ParserListWithTemplate, default_action=lambda ctx: ctx.step(len(ctx.text)))
+
+    def parse_string(self, string):
+        return ParserListWithTemplate.parse(self._scanner(string), context=self)
+
+
+class TestListWithTemplate(unittest.TestCase):
+    def test_simple(self):
+        compiler = ParserListWithTemplate()
+        ctx = TestContext({
+            'prev': {
+                'hello': 'world!'
+            }
+        })
+        lst = compiler.parse_string('2${.hello}4')
+
+        self.assertListEqual(
+            [i(ctx) if callable(i) else i for i in lst], ['2', 'world!', '4'])
 
 
 class ParserPair(metaclass=Parser):
@@ -258,7 +489,7 @@ class ParserPair(metaclass=Parser):
     NEWLINE = Token(r'\n+',
                     action=lambda ctx: ctx.lines(len(ctx.text)))
     WHITE = Token(r'\s+', discard=True)
-    MISMATCH = Token(r'.', action=lambda ctx: MismatchError.throw(ctx.text))
+    MISMATCH = Token(r'.', action=lambda ctx: throw(MismatchError, ctx.text))
 
     _ = Scan(NAME, DIGITS, NEWLINE, WHITE, MISMATCH)
 
@@ -311,7 +542,8 @@ class TestPair(unittest.TestCase):
 
     def test_error(self):
         compiler = ParserPair()
-        self.assertRaises(SyntaxError, lambda: compiler.parse_string('2 3 4 x'))
+        self.assertRaises(
+            SyntaxError, lambda: compiler.parse_string('2 3 4 x'))
 
 
 class ParserList(metaclass=Parser):
@@ -320,7 +552,7 @@ class ParserList(metaclass=Parser):
                     discard=True,
                     action=lambda ctx: ctx.lines(len(ctx.text)))
     WHITE = Token(r'\s+', discard=True)
-    MISMATCH = Token(r'.', action=lambda ctx: MismatchError.throw(ctx.text))
+    MISMATCH = Token(r'.', action=lambda ctx: throw(MismatchError, ctx.text))
 
     _ = Scan(DIGITS, NEWLINE, WHITE, MISMATCH)
 
@@ -371,12 +603,13 @@ class TestList(unittest.TestCase):
 class TestScanner(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.si = ScanInfo()
-        self.si.contexts = {
+
+        scan_info = {
             '__default__': ['DIGITS', 'QUOTE', 'NEWLINE', 'WHITE', 'MISMATCH'],
-            'string': ['STRING_QUOTE', 'STRING_ESCAPE', 'STRING_NEWLINE', 'STRING_CHAR', 'MISMATCH']
+            'string': ['STRING_QUOTE', 'STRING_ESCAPE', 'STRING_NEWLINE', 'STRING_CHAR', 'MISMATCH', 'STRING']
         }
-        self.si.tokens = {
+
+        tokens = {
             'DIGITS': {
                 'pattern': r'\d',
                 'action': str
@@ -398,7 +631,7 @@ class TestScanner(unittest.TestCase):
             },
             'STRING_NEWLINE': {
                 'pattern': r'\n',
-                'action': lambda ctx: MismatchError.throw('string missing terminator'),
+                'action': lambda ctx: throw(MismatchError, 'string missing terminator'),
                 'discard': True
             },
             'STRING_CHAR': {
@@ -421,13 +654,23 @@ class TestScanner(unittest.TestCase):
             },
             'MISMATCH': {
                 'pattern': r'.',
-                'action': lambda ctx: MismatchError.throw(ctx.text),
+                'action': lambda ctx: throw(MismatchError, ctx.text),
                 'discard': True
             }
         }
 
-        self.scanner = Scanner(
-            self.si, lambda ctx: ctx.step())
+        si = {}
+
+        for ctx, toks in scan_info.items():
+            lst = []
+            for name in toks:
+                info = tokens[name]
+                token = Terminal(name, name, precedence=None)
+                token.data.update(info)
+                lst.append(token)
+            si[ctx] = lst
+
+        self.scanner = Scanner(si, lambda ctx: ctx.step())
 
         self.scan = lambda s: list(
             map(lambda v: v.value, self.scanner(s)))
@@ -451,6 +694,7 @@ class TestScanner(unittest.TestCase):
 
     def test_context(self):
         self.assertListEqual(self.scan('1"2\\"2"3'), ['1', '2"2', '3'])
+
 
 # UPG
 # RUN python3 -m unittest tests.py

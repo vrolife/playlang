@@ -1,6 +1,5 @@
 import re
-from playlang.objects import Terminal
-from playlang.api import Location, ScanInfo, TokenValue, StaticField
+from playlang.classes import *
 
 
 class TrailingJunk(Exception):
@@ -22,45 +21,39 @@ class Scanner:
         self._actions = {}
         self._capture = {}
 
-        if isinstance(clazz, ScanInfo):
+        if isinstance(clazz, dict):
             scan_info = clazz
         else:
             scan_info = clazz.__scan_info__
 
-        for name, token_info in scan_info.tokens.items():
-            pattern, capture = map(token_info.get, ('pattern', 'capture'))
+        for context, tokens in scan_info.items():
+            for token in tokens:
+                if token.capture:
+                    self._capture[context] = self._convert(token)
+                    continue
 
-            if capture is not None:
-                self._capture[capture] = self._convert(name, token_info)
-                continue
+                if token.pattern is None:
+                    raise TypeError(f'token "{token.fullname}" missing pattern')
 
-            if pattern is None:
-                raise TypeError(f'token "{name}" missing pattern')
+                if not isinstance(token.pattern, (str, re.Pattern)):
+                    raise TypeError(
+                        f'pattern must be "str" or "re.Pattern": {token.fullname}')
 
-            if not isinstance(pattern, (str, re.Pattern)):
-                raise TypeError(
-                    f'patter must be "str" or "re.Pattern": {name}')
+                if token.fullname in self._actions:
+                    continue
 
-            self._actions[name] = self._convert(name, token_info)
+                self._actions[token.fullname] = self._convert(token)
 
-        for context, tokens in scan_info.contexts.items():
+        for context, tokens in scan_info.items():
             pairs = []
-            for tok in tokens:
-                name = tok
-                if isinstance(tok, Terminal):
-                    name = tok.name
-                token_info = scan_info.tokens.get(name, {})
-                pairs.append((name, token_info.get('pattern')))
+            for token in tokens:
+                pairs.append((token.fullname, token.data.get('pattern')))
 
             self._regexps[context] = re.compile(
-                '|'.join([f'(?P<%s>%s)' % pair for pair in pairs]))
+                '|'.join(['(?P<%s>%s)' % pair for pair in pairs]))
 
-    def _convert(self, name, token_info: dict):
-        if name in self._actions:
-            raise TypeError(f'duplicate token {name}')
-
-        action, discard, token = map(
-            token_info.get, ('action', 'discard', 'token'))
+    def _convert(self, token: Terminal):
+        action, discard = map(token.data.get, ('action', 'discard'))
 
         def action_wrapper(context):
             value = None

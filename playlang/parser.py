@@ -1,7 +1,8 @@
-from typing import Dict, List
-from playlang.api import *
-from playlang.objects import Symbol, Terminal
-from playlang.syntex import Syntax, State
+from typing import List
+from playlang.classes import TokenValue, Symbol, \
+    Terminal, SymbolInfo, Precedence, SymbolRule, \
+    StaticField, Scan, Start, State, TokenInfo
+from playlang.syntex import Syntax
 
 
 class TokenReader:
@@ -86,17 +87,27 @@ def _parse(token_reader, state_stack, context):
 
         if branch is not None:
             # shift
-            if isinstance(lookahead.token, Terminal):
+            if not isinstance(lookahead.token, Symbol):
                 token_reader.read()
             state_stack.push(branch)
             lookahead = token_reader.peek()
         else:
             if current_state.reduce_rule is not None:
                 # reduce
-                n = current_state.reduce_rule(token_reader, context=context)
-                state_stack.pop(n)
+                rule = current_state.reduce_rule
+                if rule.action is not None:
+                    args = [context]
+                    for tv in token_reader.consume(len(rule)):
+                        args.append(tv.value)
+                    value = rule.action(*args)
+                else:
+                    token_reader.consume(len(rule))
+                    value = None
+                token_reader.commit(TokenValue(rule.symbol, value))
+                state_stack.pop(len(rule))
                 lookahead = token_reader.top()
             else:
+                # pylint: disable=line-too-long
                 if isinstance(lookahead.token, Terminal) and lookahead.token.ignorable:
                     token_reader.discard()
                     lookahead = token_reader.peek()
@@ -117,63 +128,52 @@ def _parse(token_reader, state_stack, context):
                 else:
                     message = f', expecting one of [{" ".join([t.show_name for t in current_state.immediate_tokens])}]'
 
-                raise SyntaxError(f'{location}unexpected token {lookahead.token.show_name}({lookahead.value}){message}')
+                raise SyntaxError(
+                    f'{location}unexpected token {lookahead.token.show_name}({lookahead.value}){message}')
 
 
 class ParserDict(dict):
-    def __init__(self):
+    def __init__(self, name):
         super().__init__()
-        self['__syntax__'] = Syntax()
-        self['__scan_info__'] = ScanInfo()
+        self['__syntax__'] = Syntax(name)
+        self['__scan_info__'] = {}
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, value): # pylint: disable=too-many-branches
         if isinstance(value, SymbolInfo):
-            si = value
-            symbol = self['__syntax__'].symbol(key)
-            for ruleinfo in si.rules:
-                symbol.add_rule(ruleinfo.symbols,
-                                action=si.action,
-                                precedence=ruleinfo.precedence,
-                                extra_info=si.extra_info)
+            syntax = self['__syntax__']  # type: Syntax
 
-            if si.show_name is not None:
-                symbol.show_name = si.show_name
+            symbol = syntax.symbol(key)  # type: Symbol
+            for ruleinfo in value.rules:
+                for c in ruleinfo.components:
+                    if isinstance(c, Terminal) and c not in syntax.tokens.values():
+                        syntax.tokens[c.fullname] = c
+                    if isinstance(c, Symbol) and c not in syntax.symbols.values():
+                        syntax.symbols[c.fullname] = c
+
+                rule = SymbolRule(symbol,
+                                  ruleinfo.components,
+                                  value.action,
+                                  ruleinfo.precedence,
+                                  value.data)
+                symbol.rules.append(rule)
+
+            symbol.data.update(value.data)
 
             dict.__setitem__(self, key, symbol)
             return
 
         elif isinstance(value, TokenInfo):
+            syntax = self['__syntax__']  # type: Syntax
             eof = value.get('eof')
 
             if eof:
-                token = self['__syntax__'].token(
-                    key, show_name=value.get('show_name'))
-                self['__eof_symbol__'] = token
+                token = syntax.terminal('__EOF__')
+                token.data.update(value)
                 dict.__setitem__(self, key, token)
                 return
 
-            si = self['__scan_info__']
-            token_info = si.tokens.get(key)
-
-            if token_info is not None:
-                token_info.update(value)
-            else:
-                token_info = value
-                si.tokens[key] = value
-
-            discard, ignorable, show_name = map(
-                token_info.get, ('discard', 'ignorable', 'show_name'))
-
-            if show_name is None:
-                token_info['show_name'] = key
-                show_name = key
-
-            if not discard:
-                token = self['__syntax__'].token(
-                    key, ignorable=ignorable, show_name=show_name)
-                token_info['token'] = token
-            else:
-                token = key
+            token = syntax.terminal(key)
+            token.data.update(value)
 
             dict.__setitem__(self, key, token)
             return
@@ -185,29 +185,27 @@ class ParserDict(dict):
             self['__syntax__'].left()
 
         elif value is Precedence.Increase:
-            self['__syntax__'].precedence()
+            self['__syntax__'].increase()
 
         elif isinstance(value, Start):
             symbol = value.symbol
             if not isinstance(symbol, Symbol):
                 raise TypeError(
-                    'expected a non-terminal symbol as start symbol. but got %s' % symbol)
+                    f'expected a non-terminal symbol as start symbol. but got {symbol}')
             self['__start_symbol__'] = symbol
 
         elif isinstance(value, Scan):
-            self['__scan_info__'].contexts[value.name] = value.tokens
+            self['__scan_info__'][value.name] = value.tokens
 
         dict.__setitem__(self, key, value)
 
 
 class Parser(type):
+    __syntax__: Syntax
     __state_tree__: State
     __state_list__: List[State]
-    __symbol_list__: List[str]
-    __scan_info__: ScanInfo
-    __start_symbol__: Symbol
-    __eof_symbol__: Symbol
-    __syntax__: Symbol
+    __scan_info__: dict
+    __symbols__: List[str]
 
     def __new__(cls, name, bases, dic: ParserDict):
         syntax = dic['__syntax__']
@@ -221,21 +219,16 @@ class Parser(type):
             raise TypeError(
                 f'invalid type of start symbol "{start_symbol}"')
 
-        if '__eof_symbol__' not in dic:
-            eof_symbol = syntax.token('__EOF__')
-            dic['__eof_symbol__'] = eof_symbol
-        else:
-            eof_symbol = dic['__eof_symbol__']
-
-        state_tree, start_wrapper = syntax.generate(start_symbol, eof_symbol)
+        state_tree, start_wrapper = syntax.generate(start_symbol)
 
         state_list = list(syntax._merged_states)
         state_list.sort(key=lambda s: ''.join([str(t) for t in s.tokens]))
 
         dic['__state_tree__'] = state_tree
         dic['__state_list__'] = state_list
-        dic['__symbol_list__'] = syntax._defined_symbols.values()
+        dic['__symbols__'] = syntax.symbols.values()
         dic['__start_symbol__'] = start_wrapper
+        dic['__eof_symbol__'] = syntax.__EOF__
 
         clazz = type.__new__(cls, name, bases, dic)
 
@@ -245,13 +238,13 @@ class Parser(type):
 
         return clazz
 
-    def parse(cls, scanner, context=None):
+    def parse(cls, scanner, context):
         token_reader = TokenReader(
             scanner, cls.__start_symbol__, cls.__eof_symbol__)
         state_stack = StateStack(cls.__state_tree__)
-        _parse(token_reader, state_stack, context=context)
+        _parse(token_reader, state_stack, context)
         return token_reader.pop().value
 
     @classmethod
-    def __prepare__(metacls, name, bases):
-        return ParserDict()
+    def __prepare__(cls, name, bases):
+        return ParserDict(name)
