@@ -48,10 +48,10 @@ class Syntax:
         if fullname is None:
             fullname = f'{self.name}_{name}'.upper()
 
-        symbol = self._defined_symbols.get(name)
+        symbol = self._defined_symbols.get(fullname)
         if symbol is None:
             symbol = Symbol(name, fullname)
-            self._defined_symbols[name] = symbol
+            self._defined_symbols[fullname] = symbol
 
         return symbol
 
@@ -62,11 +62,11 @@ class Syntax:
         if fullname is None:
             fullname = f'{self.name}_{name}'.upper()
 
-        token = self._defined_tokens.get(name)
+        token = self._defined_tokens.get(fullname)
         if token is None:
             token = Terminal(
                 name, fullname, precedence=self._current_precedence)
-            self._defined_tokens[name] = token
+            self._defined_tokens[fullname] = token
 
         return token
 

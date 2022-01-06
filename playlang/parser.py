@@ -142,13 +142,23 @@ class ParserDict(dict):
         if isinstance(value, SymbolInfo):
             syntax = self['__syntax__']  # type: Syntax
 
+            def add_all(symbol: Symbol):
+                for rule in symbol.rules:
+                    for c in rule:
+                        if isinstance(c, Terminal) and c.fullname not in syntax.tokens:
+                            syntax.tokens[c.fullname] = c
+                        if isinstance(c, Symbol) and c.fullname not in syntax.symbols:
+                            syntax.symbols[c.fullname] = c
+                            add_all(c)
+
             symbol = syntax.symbol(key)  # type: Symbol
             for ruleinfo in value.rules:
                 for c in ruleinfo.components:
-                    if isinstance(c, Terminal) and c not in syntax.tokens.values():
+                    if isinstance(c, Terminal) and c.fullname not in syntax.tokens:
                         syntax.tokens[c.fullname] = c
-                    if isinstance(c, Symbol) and c not in syntax.symbols.values():
+                    if isinstance(c, Symbol) and c.fullname not in syntax.symbols:
                         syntax.symbols[c.fullname] = c
+                        add_all(c)
 
                 rule = SymbolRule(symbol,
                                   ruleinfo.components,
@@ -167,7 +177,7 @@ class ParserDict(dict):
             eof = value.get('eof')
 
             if eof:
-                token = syntax.terminal('__EOF__')
+                token = syntax.terminal('__EOF__', '__EOF__')
                 token.data.update(value)
                 dict.__setitem__(self, key, token)
                 return
