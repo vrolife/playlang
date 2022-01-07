@@ -64,7 +64,7 @@ def _generate(parser, file, prefix):
     scan_info = parser.__scan_info__  # type: dict
     p = Printer(file)
     p + '// generated code'
-    p + 'import { TokenReader, SyntaxError, create_scanner } from "./playlang.mjs"'
+    p + 'import { TokenReader, SyntaxError, create_scanner } from "./playlang.js"'
 
     show_name = {}
 

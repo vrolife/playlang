@@ -14,27 +14,30 @@ def test(cls, source):
     if export_dir is not None:
         folder = os.path.join(export_dir, cls.__name__)
         os.makedirs(folder, exist_ok=True)
-        shutil.copy('playlang.mjs', folder)
-        with open(os.path.join(folder, 'parser.mjs'), 'w') as f:
+        shutil.copy('playlang.js', folder)
+        with open(os.path.join(folder, 'parser.js'), 'w') as f:
             JavaScript.generate(compiler, f, cls.__name__.lower() + '_')
-        with open(os.path.join(folder, 'tests.mjs'), 'w') as f:
+        with open(os.path.join(folder, 'tests.js'), 'w') as f:
             f.write(source)
         return 0
 
     with tempfile.TemporaryDirectory() as folder:
-        shutil.copy('playlang.mjs', folder)
-        with open(os.path.join(folder, 'parser.mjs'), 'w') as f:
+        shutil.copy('playlang.js', folder)
+        with open(os.path.join(folder, 'parser.js'), 'w') as f:
             JavaScript.generate(compiler, f, cls.__name__.lower() + '_')
-        with open(os.path.join(folder, 'tests.mjs'), 'w') as f:
+        with open(os.path.join(folder, 'tests.js'), 'w') as f:
             f.write(source)
 
-        return os.system(f'cd "{folder}" && node tests.mjs')
+        with open(os.path.join(folder, 'package.json'), 'w') as f:
+            f.write('{"type":"module"}')
+
+        return os.system(f'cd "{folder}" && node --experimental-vm-modules tests.js')
 
 
 class TestJavaScript(unittest.TestCase):
     def test_calc(self):
         status = test(ParserCalc, """
-import { parsercalc_scan, parsercalc_parse } from './parser.mjs'
+import { parsercalc_scan, parsercalc_parse } from './parser.js'
 
 const context = {
     x: 3,
@@ -79,7 +82,7 @@ assert(`parsercalc_parse(parsercalc_scan('x*4'), context)`, 12)
 
     def test_list_template(self):
         status = test(ParserListWithTemplate, """
-import { parserlistwithtemplate_scan, parserlistwithtemplate_parse } from './parser.mjs'
+import { parserlistwithtemplate_scan, parserlistwithtemplate_parse } from './parser.js'
 
 class TestContext {
     constructor(instances) {
