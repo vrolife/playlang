@@ -14,17 +14,27 @@ def test(cls, source):
     if export_dir is not None:
         folder = os.path.join(export_dir, cls.__name__)
         os.makedirs(folder, exist_ok=True)
+
         shutil.copy('playlang.js', folder)
+
         with open(os.path.join(folder, 'parser.js'), 'w') as f:
             JavaScript.generate(compiler, f, cls.__name__.lower() + '_')
+            
+        
         with open(os.path.join(folder, 'tests.js'), 'w') as f:
             f.write(source)
+            
+        with open(os.path.join(folder, 'package.json'), 'w') as f:
+            f.write('{"type":"module"}')
+
         return 0
 
     with tempfile.TemporaryDirectory() as folder:
         shutil.copy('playlang.js', folder)
+
         with open(os.path.join(folder, 'parser.js'), 'w') as f:
             JavaScript.generate(compiler, f, cls.__name__.lower() + '_')
+
         with open(os.path.join(folder, 'tests.js'), 'w') as f:
             f.write(source)
 

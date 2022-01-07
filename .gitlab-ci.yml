@@ -25,7 +25,7 @@ test_javascript:
   stage: test_javascript
   image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/node:14
   script:
-    - for CLS in `ls .js`; do (cd .js/$CLS; node tests.mjs); done
+    - for CLS in `ls .js`; do (cd .js/$CLS; node --experimental-vm-modules tests.js); done
 
 test_python:
   stage: test_python
