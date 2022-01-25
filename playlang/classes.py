@@ -156,7 +156,7 @@ class SymbolRule:
             precedence = TerminalPrecedence(0)
             for c in components:
                 if isinstance(c, Terminal):
-                    if precedence > c.precedence:
+                    if precedence > c.precedence and logging.getLogger().isEnabledFor(logging.DEBUG):
                         logging.debug(
                             'rule bind to lower precedence. %s', {components})
                     precedence = c.precedence
