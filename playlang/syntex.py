@@ -132,24 +132,24 @@ class Syntax:
             return False
         else:  # ==
             if reduce.associative != shift.associative:
-                raise ConflictShiftReduceError('shift/reduce conflict')
+                raise ConflictShiftReduceError('shift/reduce conflict. reduce: %s. shift: %s' % (reduce, shift))
 
             if reduce.associative == TerminalPrecedence.ASSOC_LEFT:
                 return True
 
             if not self._auto_shift:
-                raise ConflictShiftReduceError('shift/reduce conflict')
+                raise ConflictShiftReduceError('shift/reduce conflict. reduce: %s. shift: %s' % (reduce, shift))
 
             # shift default
             return False
 
-    def _should_override(self, to, _from):
-        if to.precedence > _from.precedence:
+    def _should_override(self, dest_rule, source_rule):
+        if dest_rule.precedence > source_rule.precedence:
             return True
-        if to.precedence < _from.precedence:
+        if dest_rule.precedence < source_rule.precedence:
             return False
         else:  # ==
-            raise ConflictReduceReduceError('reduce/reduce conflict')
+            raise ConflictReduceReduceError('reduce/reduce conflict. %s and %s' % (dest_rule, source_rule))
 
     def _merge_state(self, dest_state, source_state):
         if dest_state is source_state:
@@ -160,8 +160,8 @@ class Syntax:
                 # precedence ?
                 dest_state.reduce_rule = source_state.reduce_rule
             elif dest_state.reduce_rule is not source_state.reduce_rule:
-                if self._should_override(dest_state.reduce_rule.precedence,
-                                         source_state.reduce_rule.precedence):
+                if self._should_override(dest_state.reduce_rule,
+                                         source_state.reduce_rule):
                     dest_state.reduce_rule = source_state.reduce_rule
 
         for component, branch in source_state:

@@ -163,6 +163,8 @@ class SymbolRule:
 
         assert isinstance(precedence, TerminalPrecedence)
 
+
+
         self.symbol = symbol
         self._action = action
         self._components = components
@@ -183,10 +185,11 @@ class SymbolRule:
 
     def __repr__(self):
         detail = ''
-        line_number = inspect.getsourcelines(self._action)[1]
-        file = os.path.basename(inspect.getsourcefile(self._action))
-        detail = f':{file}:{line_number}'
-        return f'Rule<{self.symbol}{detail}>[{self._components}]'
+        if self._action is not None:
+            line_number = inspect.getsourcelines(self._action)[1]
+            file = os.path.basename(inspect.getsourcefile(self._action))
+            detail = f'{file}:{line_number}'
+        return f'{{ {self.symbol} -> {self._components} <{detail}> }}'
 
     def __iter__(self):
         return self._components.__iter__()

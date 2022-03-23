@@ -597,6 +597,61 @@ class TestList(unittest.TestCase):
         lst = compiler.parse_string('')
         self.assertListEqual(lst, [])
 
+# dragon book. 4.18
+class ParserList2(metaclass=Parser):
+    DIGITS = Token(r'\d')
+    NEWLINE = Token(r'\n+',
+                    discard=True,
+                    action=lambda ctx: ctx.lines(len(ctx.text)))
+    WHITE = Token(r'\s+', discard=True)
+    MISMATCH = Token(r'.', action=lambda ctx: throw(MismatchError, ctx.text))
+
+    _ = Precedence.Increase
+    A_FIRST = Token()
+
+    _ = Scan(DIGITS, NEWLINE, WHITE, MISMATCH)
+
+    @Rule(DIGITS)
+    def NUMBER(self, val):
+        return val
+
+    @Rule(NUMBER)
+    def S(self, val):
+        return [val]
+
+    @Rule()
+    def A(self):
+        return []
+
+    @Rule(A, NUMBER, precedence=A_FIRST)
+    def A(self, expr, val):
+        expr.append(val)
+        return expr
+
+    @Rule(S, NUMBER)
+    def A(self, expr, val):
+        expr.append(val)
+        return expr
+
+    @Rule(A, NUMBER)
+    def S(self, expr, num):
+        expr.append(num)
+        return expr
+
+    _ = Start(S)
+
+    def __init__(self):
+        self._scanner = Scanner(
+            ParserList2, default_action=lambda ctx: ctx.step(len(ctx.text)))
+
+    def parse_string(self, string):
+        return ParserList2.parse(self._scanner(string), context=self)
+
+class TestList2(unittest.TestCase):
+    def test_simple(self):
+        compiler = ParserList2()
+        lst = compiler.parse_string('234')
+        self.assertListEqual(lst, ['2', '3', '4'])
 
 class TestScanner(unittest.TestCase):
     def __init__(self, *args, **kwargs):
