@@ -1,0 +1,6 @@
+compile states to cpp
+custom error message
+debug level
+    print rule reduce reason
+parser namespace
+    parser without Start symbol
