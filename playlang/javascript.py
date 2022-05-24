@@ -18,7 +18,7 @@ def _generate(parser, file, prefix):
     next_tid = 1
 
     p + f'const __EOF__ = {next_tid}'  # nopep8
-    show_name[next_tid] = parser.__eof_symbol__.show_name
+    show_name[next_tid] = parser.__eof_token__.show_name
     next_tid += 1
 
     all_tokens = set()
@@ -108,7 +108,7 @@ def _generate(parser, file, prefix):
     p + ''
     p < f'export function {prefix}parse(tokenizer, context) {{'
     p + f'const state_stack = [{states_ids[parser.__state_tree__]}]'
-    p + f'const token_reader = new TokenReader(tokenizer, {parser.__start_symbol__.name}, __EOF__)'  # nopep8
+    p + f'const token_reader = new TokenReader(tokenizer, {parser.__start_wrapper__.name}, __EOF__)'  # nopep8
     p + 'var lookahead = token_reader.peek()'
 
     p < 'while(!token_reader.done()) {'

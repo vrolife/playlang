@@ -237,8 +237,8 @@ class Parser(type):
         dic['__state_tree__'] = state_tree
         dic['__state_list__'] = state_list
         dic['__symbols__'] = syntax.symbols.values()
-        dic['__start_symbol__'] = start_wrapper
-        dic['__eof_symbol__'] = syntax.__EOF__
+        dic['__start_wrapper__'] = start_wrapper
+        dic['__eof_token__'] = syntax.__EOF__
 
         clazz = type.__new__(cls, name, bases, dic)
 
@@ -250,7 +250,7 @@ class Parser(type):
 
     def parse(cls, scanner, context):
         token_reader = TokenReader(
-            scanner, cls.__start_symbol__, cls.__eof_symbol__)
+            scanner, cls.__start_wrapper__, cls.__eof_token__)
         state_stack = StateStack(cls.__state_tree__)
         _parse(token_reader, state_stack, context)
         return token_reader.pop().value

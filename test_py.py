@@ -10,7 +10,6 @@ from playlang import Parser, Token, Rule, Precedence, Scan, Start,\
 from playlang.classes import SymbolRule, Terminal
 from playlang.syntex import Syntax
 from playlang.javascript import JavaScript
-from playlang.cplusplus import CPlusPlus
 
 logging.basicConfig(level='DEBUG')
 
@@ -58,16 +57,14 @@ class TestConflict(unittest.TestCase):
 
 
 class ParserCalc(metaclass=Parser):
-    NUMBER = Token(r'\d+',
+    NUMBER = Token(r'[0-9]+',
                    action=int,
                    show_name='Number',
-                   javascript='return parseInt(ctx.text)',
-                   cpp='return std::atoi(ctx.text());')
+                   javascript='return parseInt(ctx.text)')
     NAME = Token(r'[a-zA-Z_]+\w*',
                  action=str,
                  show_name='Name',
-                 javascript='return ctx.text',
-                 cpp='return ctx.text()')
+                 javascript='return ctx.text')
     NEWLINE = Token(r'\n+',
                     discard=True,
                     action=lambda ctx: ctx.lines(len(ctx.text)))
@@ -77,8 +74,7 @@ class ParserCalc(metaclass=Parser):
     QUOTE = Token(r'"',
                   discard=True,
                   action=lambda ctx: ctx.enter('string', io.StringIO()),
-                  javascript='ctx.enter("string", [])',
-                  cpp='return ctx.enter("string", )')
+                  javascript='ctx.enter("string", [])')
     STRING_QUOTE = Token(r'"',
                          discard=True,
                          action=lambda ctx: ctx.leave(),
@@ -87,10 +83,11 @@ class ParserCalc(metaclass=Parser):
                           discard=True,
                           action=lambda ctx: ctx.value.write(ctx.text[1]),
                           javascript='ctx.value.push(ctx.text[1])')
-    SRTING_CHAR = Token(r'.',
+    STRING_CHAR = Token(r'.',
                         discard=True,
                         action=lambda ctx: ctx.value.write(ctx.text),
                         javascript='ctx.value.push(ctx.text)')
+    STRING_MISMATCH = Token(r'.', discard=True)
     STRING = Token(action=lambda ctx: ctx.value.getvalue(),
                    javascript='return ctx.value.join("")')
 
@@ -112,18 +109,16 @@ class ParserCalc(metaclass=Parser):
 
     _ = Scan(NUMBER, NAME, EQUALS, PLUS, MINUS, TIMES,
              DIVIDE, LPAR, RPAR, QUOTE, NEWLINE, WHITE, MISMATCH)
-    _ = Scan(STRING_QUOTE, STRING_ESCAPE, SRTING_CHAR,
-             MISMATCH, name="string", capture=STRING)
+    _ = Scan(STRING_QUOTE, STRING_ESCAPE, STRING_CHAR,
+             STRING_MISMATCH, name="string", capture=STRING)
 
     @JavaScript('throw Error("missmatch")')
-    @CPlusPlus('throw Error("missmatch")')
     @Action
     @staticmethod
     def MISMATCH(context):
         raise MismatchError(f'missmatch: {context.text}')
 
     @JavaScript('return $1')
-    @CPlusPlus('return $1')
     @Rule(NUMBER)
     @staticmethod
     def EXPR(context, value):
@@ -131,7 +126,6 @@ class ParserCalc(metaclass=Parser):
         return value
 
     @JavaScript(function='expr_name')
-    @CPlusPlus(function='expr_name')
     @Rule(NAME)
     @staticmethod
     def EXPR(context, name):
@@ -139,7 +133,6 @@ class ParserCalc(metaclass=Parser):
         return context.names[name]
 
     @JavaScript('return $1')
-    @CPlusPlus('return $1')
     @Rule(STRING)
     @staticmethod
     def EXPR(context, s):
@@ -147,7 +140,6 @@ class ParserCalc(metaclass=Parser):
         return s
 
     @JavaScript(function='expr_minus_expr')
-    @CPlusPlus(function='expr_minus_expr')
     @Rule(MINUS, EXPR, precedence=UMINUS)
     @staticmethod
     def EXPR(context, l, expr):
@@ -155,7 +147,6 @@ class ParserCalc(metaclass=Parser):
         return -expr
 
     @JavaScript('return $2')
-    @CPlusPlus('return $2')
     @Rule(LPAR, EXPR, RPAR)
     @staticmethod
     def EXPR(context, l, expr, r):
@@ -164,7 +155,6 @@ class ParserCalc(metaclass=Parser):
 
     @ShowName('Expression')
     @JavaScript(function='expr_expr_opr_expr')
-    @CPlusPlus(function='expr_expr_opr_expr')
     @Rule(EXPR, PLUS, EXPR)
     @Rule(EXPR, MINUS, EXPR)
     @Rule(EXPR, TIMES, EXPR)
@@ -176,7 +166,6 @@ class ParserCalc(metaclass=Parser):
         return eval(code)  # pylint: disable=eval-used
 
     @JavaScript(function='expr_name_eq_expr')
-    @CPlusPlus(function='expr_name_eq_expr')
     @Rule(NAME, EQUALS, EXPR)
     @staticmethod
     def EXPR(context, name, _, expr):
@@ -310,56 +299,48 @@ class TemplateParser(metaclass=Parser):
                       MISMATCH, name='expression')
 
     @JavaScript('return ctx => ctx.get_prev_instance()[$2]')
-    @CPlusPlus('return ctx => ctx.get_prev_instance()[$2]')
     @Rule(DOT, NAME)
     @staticmethod
     def REF(ctx, _, name):
         return lambda ctx: ctx.get_prev_instance().get(name)
 
     @JavaScript('return ctx => ctx.get_instance($2)')
-    @CPlusPlus('return ctx => ctx.get_instance($2)')
     @Rule(NAME)
     @staticmethod
     def REF(ctx, name):
         return lambda ctx: ctx.get_instance(name)
 
     @JavaScript('return ctx => $1(ctx)[$3]')
-    @CPlusPlus('return ctx => $1(ctx)[$3]')
     @Rule(REF, DOT, NAME)
     @staticmethod
     def REF(ctx, ref, _, name):
         return lambda ctx: ref(ctx).get(name)
 
     @JavaScript('return ctx => $1(ctx)[$3]')
-    @CPlusPlus('return ctx => $1(ctx)[$3]')
     @Rule(REF, LB, INTEGER, RB)
     @staticmethod
     def REF(ctx, ref, lb, idx, rb):
         return lambda ctx: ref(ctx)[idx]
 
     @JavaScript('return $1')
-    @CPlusPlus('return $1')
     @Rule(REF)
     @staticmethod
     def COMPONENT(ctx, ref):
         return ref
 
     @JavaScript('return ctx => $1')
-    @CPlusPlus('return ctx => $1')
     @Rule(TEXT)
     @staticmethod
     def COMPONENT(ctx, text):
         return lambda ctx: text
 
     @JavaScript('return [$1]')
-    @CPlusPlus('return [$1]')
     @Rule(COMPONENT)
     @staticmethod
     def ASSEMBLY(ctx, component):
         return [component]
 
     @JavaScript('$1.push($2); return $1')
-    @CPlusPlus('$1.push($2); return $1')
     @Rule(ASSEMBLY, COMPONENT)
     @staticmethod
     def ASSEMBLY(ctx, lst, text):
@@ -451,7 +432,6 @@ class ParserListWithTemplate(metaclass=Parser):
     expression = TMP.expression
 
     @JavaScript('return $1')
-    @CPlusPlus('return $1;')
     @Rule(DIGITS)
     @Rule(TMP.REF)
     @staticmethod
@@ -459,21 +439,18 @@ class ParserListWithTemplate(metaclass=Parser):
         return val
 
     @JavaScript('return []')
-    @CPlusPlus('return {};')
     @Rule()
     @staticmethod
     def EXPR(context):
         return []
 
     @JavaScript('return [$1]')
-    @CPlusPlus('return [$1]')
     @Rule(ITEM)
     @staticmethod
     def EXPR(context, val):
         return [val]
 
     @JavaScript('$1.push($2); return $1')
-    @CPlusPlus('$1.push($2); return $1')
     @Rule(EXPR, ITEM)
     @staticmethod
     def EXPR(context, expr, num):

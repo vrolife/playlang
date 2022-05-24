@@ -163,8 +163,6 @@ class SymbolRule:
 
         assert isinstance(precedence, TerminalPrecedence)
 
-
-
         self.symbol = symbol
         self._action = action
         self._components = components
