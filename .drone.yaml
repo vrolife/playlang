@@ -1,0 +1,37 @@
+kind: pipeline
+type: kubernetes
+name: default
+
+volumes:
+- name: cache
+  claim:
+    name: drone-cache
+    read_only: false
+
+steps:
+- name: generate_javascript
+  image: python:3.7
+  commands:
+  - EXPORT_DIR='.js' python -m unittest test_js.py
+- name: test_javascript
+  image: node:14
+  commands:
+  - for CLS in `ls .js`; do (cd .js/$CLS; node --experimental-vm-modules tests.js); done
+- name: test_python
+  image: python:3.7
+  commands:
+  - python -V
+  - python -m unittest test_py.py
+- name: upload
+  image: python:3.7
+  volumes:
+  - name: cache
+    path: /cache
+  commands:
+  - exit 1
+  - export PIP_CACHE_DIR=/cache/.cache/pip
+  - python setup.py bdist_wheel --build-number ${CI_PIPELINE_IID}
+  - pip install twine
+  - export TWINE_PASSWORD=${CI_JOB_TOKEN}
+  - export TWINE_USERNAME=gitlab-ci-token
+  - python -m twine upload --repository-url ${PYPI_REPOSITORY} dist/*

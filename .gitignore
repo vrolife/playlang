@@ -141,3 +141,4 @@ cython_debug/
 .vscode
 .js
 parser.mjs
+.test_*

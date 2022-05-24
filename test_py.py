@@ -87,7 +87,6 @@ class ParserCalc(metaclass=Parser):
                         discard=True,
                         action=lambda ctx: ctx.value.write(ctx.text),
                         javascript='ctx.value.push(ctx.text)')
-    STRING_MISMATCH = Token(r'.', discard=True)
     STRING = Token(action=lambda ctx: ctx.value.getvalue(),
                    javascript='return ctx.value.join("")')
 
@@ -108,9 +107,9 @@ class ParserCalc(metaclass=Parser):
     UMINUS = Token(r'-')
 
     _ = Scan(NUMBER, NAME, EQUALS, PLUS, MINUS, TIMES,
-             DIVIDE, LPAR, RPAR, QUOTE, NEWLINE, WHITE, MISMATCH)
+            DIVIDE, LPAR, RPAR, QUOTE, NEWLINE, WHITE, MISMATCH)
     _ = Scan(STRING_QUOTE, STRING_ESCAPE, STRING_CHAR,
-             STRING_MISMATCH, name="string", capture=STRING)
+            name="string", capture=STRING)
 
     @JavaScript('throw Error("missmatch")')
     @Action

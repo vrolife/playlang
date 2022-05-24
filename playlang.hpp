@@ -1,168 +1,332 @@
 #ifndef __playlang_hpp__
 #define __playlang_hpp__
 
-#include <regex>
+#include <utility>
+#include <tuple>
+#include <array>
+#include <stack>
+#include <string>
+#include <sstream>
 
-#include PLAYLANG_PARSER_HEADER
+#ifndef yyFlexLexerOnce
+#include <FlexLexer.h>
+#endif
 
-namespace PLAYLANG_PARSER_NAMESPACE {
+namespace playlang {
+    
+namespace internal {
 
-auto token_NUMBER(ContextScan& ctx) {
+template<typename T, typename... Types>
+struct union_size
+{
+    constexpr static size_t size = (sizeof(T) > union_size<Types...>::size) ? sizeof(T) : union_size<Types...>::size;
+};
+
+template<typename T>
+struct union_size<T>
+{
+    constexpr static size_t size = sizeof(T);
+};
+
+template<typename T1, int Index, typename T2, typename... Types>
+struct union_index
+{
+   constexpr static int index = std::is_same<T1, T2>::value ? Index : union_index<T1, Index + 1, Types...>::index;
+};
+
+template<typename T1, int Index, typename T2>
+struct union_index<T1, Index, T2>
+{
+   constexpr static int index = std::is_same<T1, T2>::value ? Index : -1;
+};
+
+template<size_t... I>
+struct seq
+{ };
+
+template<size_t... I>
+struct make_seq;
+
+template<size_t N, size_t... I>
+struct make_seq<N, N-1, I...>
+{
+   typedef seq<I..., N-1> type;
+};
+
+template<size_t N, size_t I0, size_t... I>
+struct make_seq<N, I0, I...> : make_seq<N, I0 + 1, I..., I0>
+{ };
+
+template<typename T, typename Tuple, typename Array, size_t... Index>
+T build_with_args(Array&& a, seq<Index...>)
+{
+   return T{a[Index].template as<typename std::tuple_element<Index,Tuple>::type>()...};
+}
+
+template<typename T, typename Tuple, typename Array>
+T build(Array&& a) {
+   constexpr static size_t N = std::tuple_size<typename std::decay<Array>::type>::value;
+   return build_with_args<T, Tuple>(
+       std::forward<Array>(a), 
+       typename make_seq<N, 0>::type{});
+}
 
 }
 
-#define TOKEN_LIST(F) \
-    F(NUMBER) \
-    F(NAME)
-
-#define TYPE_OF_TOKEN(n) std::result_of<decltype(token_##n)>::type
-#define VALUE_UNION_MEMBER(n) TYPE_OF_TOKEN(n) _##n;
-#define VALUE_GET_VALUE(n) inline auto get_##n() { return _u._##n; }
-#define VALUE_ENUM_MEMBER(n) ValueType##n,
-#define VALUE_MOVE_CONSTRUCTOR(n) case ValueType##n: _u._##n = std::move(other._##n);break;
-#define VALUE_COPY_CONSTRUCTOR(n) case ValueType##n: _u._##n = other._u._##n;break;
-#define VALUE_CONSTRUCTOR(n) Value(TYPE_OF_TOKEN(n)&& val) : _type(ValueType##n) { _u._#n = std::move(val); }
-
-struct Value
+template<typename... Types>
+class Variant
 {
-    enum ValueType {
-        ValueTypePlaylangUnknownValue,
-        TOKEN_LIST(VALUE_ENUM_MEMBER)
-    };
-    union {
-        int _playlang_unknown_value{0};
-        TOKEN_LIST(VALUE_UNION_MEMBER)
-    } _u;
+   char _memory[internal::union_size<Types...>::size];
+   int _type{-1};
 
-    ValueType _type{ValueTypePlaylangUnknownValue};
+   template<typename T, typename... TS>
+   void _free() {
+      auto t = internal::union_index<T, 0, Types...>::index;
+      if (t == _type) {
+         reinterpret_cast<T*>(&_memory[0])->~T();
+         return;
+      }
+      return _free<TS...>();
+   }
 
-    Value() = default;
-    TOKEN_LIST(VALUE_CONSTRUCTOR)
-    Value(Value&& other) {
-        _type = other._type;
-        switch(_type) {
-            TOKEN_LIST(VALUE_COPY_CONSTRUCTOR)
-        }
-        other._type = ValueTypePlaylangUnknownValue;
-    }
+   template<typename... TS>
+   typename std::enable_if<sizeof...(TS) == 0>::
+   type _free() { }
 
-    Value(const Value& other) {
-        _type = other._type;
-        switch(_type) {
-            TOKEN_LIST(VALUE_COPY_CONSTRUCTOR)
-        }
-    }
+   template<typename T, typename... TS>
+   void _copy(const Variant& other) {
+      auto t = internal::union_index<T, 0, Types...>::index;
+      if (t == other._type) {
+         new(_memory)T(*reinterpret_cast<T*>(&other._memory[0]));
+         _type = other._type;
+         return;
+      }
+      return _copy<TS...>(other);
+   }
 
-    Value& operator =(Value&& other) {
-        _type = other._type;
-        switch(_type) {
-            TOKEN_LIST(VALUE_MOVE_CONSTRUCTOR)
-        }
-        other._type = ValueTypePlaylangUnknownValue;
-        return *this;
-    }
+   template<typename... TS>
+   typename std::enable_if<sizeof...(TS) == 0>::
+   type _copy(const Variant& other) { }
 
-    Value& operator =(const Value& other) {
-        _type = other._type;
-        switch(_type) {
-            TOKEN_LIST(VALUE_COPY_CONSTRUCTOR)
-        }
-        return *this;
-    }
+   template<typename T, typename... TS>
+   void _move(Variant&& other) {
+      auto t = internal::union_index<T, 0, Types...>::index;
+      if (t == other._type) {
+         new(_memory)T(std::move(*reinterpret_cast<T*>(&other._memory[0])));
+         _type = other._type;
+         other._type = -1;
+         return;
+      }
+      return _move<TS...>(std::move(other));
+   }
 
-    bool empty() const { return _type == ValueTypePlaylangUnknownValue; }
-};
+   template<typename... TS>
+   typename std::enable_if<sizeof...(TS) == 0>::
+   type _move(Variant&& other) { }
 
-struct TokenValue {
-    int _token{0};
-    bool _discard{false};
-    Value _value{};
+   template<typename T, typename... TS>
+   bool _eq(const Variant& other) {
+      auto t = internal::union_index<T, 0, Types...>::index;
+      if (t == other._type) {
+         return this->as<T>() == other.as<T>();
+      }
+      return _eq<TS...>(other);
+   }
 
-    template<typename V>
-    TokenValue(int token, V&& value)
-    : _token(token), _value(std::forward<V>(value))
-    {
+   template<typename... TS>
+   typename std::enable_if<sizeof...(TS) == 0, bool>::
+   type _eq(const Variant& other) { return false; }
 
-    }
-
-    template<typename V>
-    TokenValue(int token, bool discard, V&& value)
-    : _token(token), _discard(discard), _value(std::forward<V>(value))
-    {
-
-    }
-
-    TokenValue() = default;
-    TokenValue(TokenValue&& other) {
-        _token = other._token;
-        _discard = other._discard;
-        _value = std::move(other._value);
-        other._token = 0;
-        other._discard = false;
-    }
-    TokenValue(const TokenValue&) = default;
-    TokenValue& operator = (TokenValue&&) {
-        _token = other._token;
-        _discard = other._discard;
-        _value = std::move(other._value);
-        other._token = 0;
-        other._discard = false;
-        return *this;
-    }
-    TokenValue& operator = (const TokenValue&) = default;
-
-    bool empty() const { return _token == 0; }
-};
-
-class Tokenizer
-{
-    std::vector<ContextScan> _stack;
 public:
+   Variant() = default;
 
-    TokenValue next() {
+   template<typename T>
+   explicit Variant(T&& value) {
+     emplace<T>(std::forward<T>(value));
+   }
 
+   Variant(const Variant& other) {
+      if (other.empty()) {
+         _type = -1;
+         return;
+      }
+      _copy<Types...>(other);
+   }
+
+   Variant(Variant&& other) {
+      if (other.empty()) {
+         _type = -1;
+         return;
+      }
+      _move<Types...>(std::move(other));
+   }
+
+   ~Variant() { reset(); }
+
+   Variant& operator =(const Variant& other) {
+      reset();
+      if (not other.empty()) {
+         _copy<Types...>(other);
+      }
+      return *this;
+   }
+
+   Variant& operator =(Variant&& other) {
+      reset();
+      if (not other.empty()) {
+         _move<Types...>(std::move(other));
+      }
+      return *this;
+   }
+
+   bool operator ==(const Variant& other) {
+      return _type == other._type and (_type == -1 or _eq<Types...>(other));
+   }
+
+   bool operator !=(const Variant& other) {
+      return !(*this == other);
+   }
+
+   template<typename T, typename... Args>
+   T& emplace(Args&&... args) {
+      auto t = internal::union_index<T, 0, Types...>::index;
+      if (t == -1) {
+         throw std::bad_cast();
+      }
+      this->reset();
+      _type = t;
+      new(_memory)T(std::forward<Args>(args)...);
+      return *reinterpret_cast<T*>(&_memory[0]);
+   }
+
+   void reset() {
+      if (_type != -1) {
+         _free<Types...>();
+         _type = -1;
+      }
+   }
+
+    bool empty() const {
+        return _type == -1;
+    }
+
+   template<typename T>
+   T& as() {
+      auto t = internal::union_index<T, 0, Types...>::index;
+      if (t != _type) {
+         throw std::bad_cast();
+      }
+      return *reinterpret_cast<T*>(&_memory[0]);
+   }
+
+   template<typename T>
+   const T& as() const {
+      auto t = internal::union_index<T, 0, Types...>::index;
+      if (t != _type) {
+         throw std::bad_cast();
+      }
+      return *reinterpret_cast<const T*>(&_memory[0]);
+   }
+};
+
+struct Location {
+    int _line_number;
+    int _column;
+
+    Location(int line_number = 0, int column = 0)
+    : _line_number(line_number), _column(column)
+    { }
+
+    Location(const Location&) = default;
+    Location& operator =(const Location&) = default;
+
+    void lines(int n) {
+        this->_line_number += n;
+        this->_column = 0;
+    }
+
+    void step() {
+        this->_column += 1;
+    }
+
+    void step(int n) {
+        this->_column += n;
     }
 };
 
+template<typename T>
+class Token {
+    T _value{};
+public:
+    typedef T ValueType;
+    Token(T&& val):_value(std::move(val)) { }
+    Token(const T& val):_value(val) { }
+
+    operator T&() { return _value; }
+    operator const T&() const { return _value; }
+
+    T& value() { return _value; }
+    const T& value() const { return _value; }
+};
+
+template<>
+class Token<void> { };
+
+template<typename T>
+class Symbol {
+    T _value{};
+public:
+    typedef T ValueType;
+    Symbol(T&& val):_value(std::move(val)) { }
+    Symbol(const T& val):_value(val) { }
+
+    operator T&() { return _value; }
+    operator const T&() const { return _value; }
+
+    T& value() { return _value; }
+    const T& value() const { return _value; }
+};
+
+template<>
+class Symbol<void> { };
+
+template<typename Tokenizer>
 class TokenReader
 {
-    Tokenizer _tokenizer;
-    int _start;
-    int _eof;
+    typedef typename Tokenizer::TokenValueType TokenValueType;
+    typedef typename Tokenizer::ValueType ValueType;
 
-    std::stack<TokenValue> _stack;
-    TokenValue _next_token;
+    Tokenizer& _tokenizer;
 
-    std::pair<int, Value> _read() {
-        auto tmp = _tokenizer++;
-        if (tmp->first == _eof) {
-            return {_eof, {}};
-        }
-        return std::move(*tmp);
+    std::stack<TokenValueType> _stack{};
+    TokenValueType _next_token{};
+
+    TokenValueType _read() {
+        return _tokenizer.read();
     }
 
 public:
-    TokenReader(Tokenizer&& tokenizer, int start, int eof)
-    : _tokenizer(std::move(tokenizer)), _start(start), _eof(eof)
+    TokenReader(Tokenizer& tokenizer)
+    : _tokenizer(tokenizer)
     {
         
     }
 
     bool done() {
-        return _stack.size() == 1 and _stack.back().first == _start;
+        return _stack.size() == 1 and _stack.top().token() == Tokenizer::TokenID_START;
     }
     
-    TokenValue& top() { return _stack.top(); }
+    TokenValueType& top() { return _stack.top(); }
 
-    TokenValue& peek() {
+    TokenValueType* peek() {
         if (_next_token.empty()) {
-            _next_token = this._read();
+            _next_token = this->_read();
         }
-        return _next_token;
+        return &_next_token;
     }
 
     void discard() {
-        _next_token = {0, {}};
+        _next_token = {};
     }
 
     void read() {
@@ -184,21 +348,182 @@ public:
         }
     }
 
-    void commit(TokenValue&& tv) {
+    void commit(TokenValueType&& tv) {
         _stack.emplace(std::move(tv));
     }
 
-    TokenValue pop() {
+    TokenValueType pop() {
         auto tv = std::move(_stack.top());
         _stack.pop();
-        return tv;
+        return std::move(tv);
     }
 
-    void push(TokenValue&& tv) {
+    void push(TokenValueType&& tv) {
         _stack.emplace(std::move(tv));
+    }
+
+    template<typename T, typename... C>
+    void produce(int token) {
+        constexpr static size_t N = sizeof...(C);
+        std::array<ValueType, N> args{};
+        for (size_t i = 0 ; i < N; ++i) {
+            args[N - i -1] = std::move(pop().value());
+        }
+        typedef std::tuple<C...> Tuple;
+        push({_tokenizer.location(), ValueType{internal::build<T, Tuple>(args)}, token});
     }
 };
 
-}
+template<typename TokenValueType>
+class TokenizerBase;
+
+template<typename TokenValueType>
+class TokenizerContext
+{
+    typedef TokenizerBase<TokenValueType> TokenizerType;
+    typedef typename TokenValueType::ValueType ValueType;
+
+    std::string _name{};
+    TokenizerType* _tokenizer;
+    ValueType _value{};
+    std::string _text{};
+
+public:
+    TokenizerContext(
+        const std::string& name, 
+        TokenizerBase<TokenValueType>* tokenizer,
+        ValueType&& value
+    )
+    : _name(name),
+      _tokenizer(tokenizer),
+      _value(std::move(value))
+    { }
+
+    const std::string& text() {
+        return _text;
+    }
+
+    void text(std::string&& text) {
+        _text = std::move(text);
+    }
+
+    ValueType& value() {
+        return _value;
+    }
+
+    TokenizerType* operator ->() {
+        return _tokenizer;
+    }
+
+    operator const std::string&() {
+        return _text;
+    }
+};
+
+template<typename TokenValue>
+class TokenizerBase : public yyFlexLexer
+{
+public:
+    typedef TokenValue TokenValueType;
+    typedef typename TokenValue::ValueType ValueType;
+    typedef TokenizerContext<TokenValue> ContextType;
+
+    TokenizerBase(const std::string& filename, std::istream& in, std::ostream& out)
+    : yyFlexLexer(in, out), _filename(filename) { init(); }
+
+    TokenizerBase(const std::string& filename, std::istream* in = 0, std::ostream* out = 0)
+    : yyFlexLexer(in, out), _filename(filename) { init(); }
+
+    Location& location() {
+        return _location;
+    }
+
+    TokenValue read() {
+        return yylex(_stack.top());
+    }
+
+    void step(int n = 1) {
+        _location.step(n);
+    }
+
+    void lines(int n = 1) {
+        _location.lines(n);
+    }
+
+    void leave() {
+        this->yy_pop_state();
+    }
+
+    void enter(int group, ValueType&& value) 
+    {
+        _stack.emplace(ContextType{group, this, std::move(value)});
+        this->yy_push_state(group);
+    }
+protected:
+    virtual TokenValue yylex(ContextType& ctx) = 0;
+
+    std::stack<TokenizerContext<TokenValue>> _stack{};
+    bool _leave_flag{false};
+    std::string _filename{};
+    Location _location;
+
+    void init() {
+        _stack.emplace(ContextType{"__default__", this, ValueType{}});
+    }
+};
+
+template<typename T>
+class TokenValue {
+public:
+    typedef T ValueType;
+
+private:
+    Location _location{};
+    ValueType _value{};
+    int _token{};
+
+public:
+    TokenValue() = default;
+    TokenValue(const Location& loc, ValueType&& value, int token)
+    : _location(loc), _value(std::move(value)), _token(token)
+    { }
+
+    TokenValue(const TokenValue&) = default;
+    TokenValue(TokenValue&&) = default;
+    TokenValue& operator =(const TokenValue&) = default;
+    TokenValue& operator =(TokenValue&&) = default;
+
+    bool valid() {
+        return not _value.empty();
+    }
+
+    bool empty() {
+        return _value.empty();
+    }
+    
+    ValueType& value() { return _value; }
+    const Location& location() const { return _location; }
+    int token() const { return _token; }
+};
+
+class PlaylangError : public std::logic_error
+{
+public:
+    using std::logic_error::logic_error;
+};
+
+class MismatchError : public PlaylangError
+{
+public:
+    using PlaylangError::PlaylangError;
+};
+
+class SyntaxError : public PlaylangError
+{
+public:
+    using PlaylangError::PlaylangError;
+};
+
+} // playlang
 
 #endif
