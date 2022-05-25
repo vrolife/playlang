@@ -57,16 +57,25 @@ template<size_t N, size_t I0, size_t... I>
 struct make_seq<N, I0, I...> : make_seq<N, I0 + 1, I..., I0>
 { };
 
-template<typename T, typename Tuple, typename Array, size_t... Index>
-T build_with_args(Array&& a, seq<Index...>)
+template<typename T, typename Context, typename Tuple, typename Array, size_t... Index>
+typename std::enable_if<!T::Contextful, T>::
+type build_with_args(Context& ctx, Array&& a, seq<Index...>)
 {
-   return T{a[Index].template as<typename std::tuple_element<Index,Tuple>::type>()...};
+    return T{a[Index].template as<typename std::tuple_element<Index,Tuple>::type>()...};
 }
 
-template<typename T, typename Tuple, typename Array>
-T build(Array&& a) {
+template<typename T, typename Context, typename Tuple, typename Array, size_t... Index>
+typename std::enable_if<T::Contextful, T>::
+type build_with_args(Context& ctx, Array&& a, seq<Index...>)
+{
+    return T{ctx, a[Index].template as<typename std::tuple_element<Index,Tuple>::type>()...};
+}
+
+template<typename T, typename Context, typename Tuple, typename Array>
+T build(Context& ctx, Array&& a) {
    constexpr static size_t N = std::tuple_size<typename std::decay<Array>::type>::value;
-   return build_with_args<T, Tuple>(
+   return build_with_args<T, Context, Tuple>(
+       ctx,
        std::forward<Array>(a), 
        typename make_seq<N, 0>::type{});
 }
@@ -254,10 +263,11 @@ struct Location {
     }
 };
 
-template<typename T>
+template<typename T, bool Context=false>
 class Token {
     T _value{};
 public:
+    constexpr static bool Contextful = Context;
     typedef T ValueType;
     Token(T&& val):_value(std::move(val)) { }
     Token(const T& val):_value(val) { }
@@ -265,30 +275,23 @@ public:
     operator T&() { return _value; }
     operator const T&() const { return _value; }
 
+    template<typename V>
+    void value(V&& value) {
+        _value = std::forward<V>(value);
+    }
     T& value() { return _value; }
     const T& value() const { return _value; }
 };
 
-template<>
-class Token<void> { };
-
-template<typename T>
-class Symbol {
-    T _value{};
+template<bool Context>
+class Token<void, Context> {
 public:
-    typedef T ValueType;
-    Symbol(T&& val):_value(std::move(val)) { }
-    Symbol(const T& val):_value(val) { }
-
-    operator T&() { return _value; }
-    operator const T&() const { return _value; }
-
-    T& value() { return _value; }
-    const T& value() const { return _value; }
+    constexpr static bool Contextful = Context;
+    typedef void ValueType;
 };
 
-template<>
-class Symbol<void> { };
+template<typename T, bool Context=false>
+using Symbol = Token<T, Context>;
 
 template<typename Tokenizer>
 class TokenReader
@@ -362,71 +365,24 @@ public:
         _stack.emplace(std::move(tv));
     }
 
-    template<typename T, typename... C>
-    void produce(int token) {
+    template<typename T, typename Context, typename... C>
+    void produce(Context& ctx, int token) {
         constexpr static size_t N = sizeof...(C);
         std::array<ValueType, N> args{};
         for (size_t i = 0 ; i < N; ++i) {
             args[N - i -1] = std::move(pop().value());
         }
         typedef std::tuple<C...> Tuple;
-        push({_tokenizer.location(), ValueType{internal::build<T, Tuple>(args)}, token});
-    }
-};
-
-template<typename TokenValueType>
-class TokenizerBase;
-
-template<typename TokenValueType>
-class TokenizerContext
-{
-    typedef TokenizerBase<TokenValueType> TokenizerType;
-    typedef typename TokenValueType::ValueType ValueType;
-
-    std::string _name{};
-    TokenizerType* _tokenizer;
-    ValueType _value{};
-    std::string _text{};
-
-public:
-    TokenizerContext(
-        const std::string& name, 
-        TokenizerBase<TokenValueType>* tokenizer,
-        ValueType&& value
-    )
-    : _name(name),
-      _tokenizer(tokenizer),
-      _value(std::move(value))
-    { }
-
-    const std::string& text() {
-        return _text;
-    }
-
-    void text(std::string&& text) {
-        _text = std::move(text);
-    }
-
-    ValueType& value() {
-        return _value;
-    }
-
-    TokenizerType* operator ->() {
-        return _tokenizer;
-    }
-
-    operator const std::string&() {
-        return _text;
+        push({_tokenizer.location(), ValueType{internal::build<T, Context, Tuple>(ctx, args)}, token});
     }
 };
 
 template<typename TokenValue>
-class TokenizerBase : public yyFlexLexer
+class TokenizerBase : protected yyFlexLexer
 {
 public:
     typedef TokenValue TokenValueType;
     typedef typename TokenValue::ValueType ValueType;
-    typedef TokenizerContext<TokenValue> ContextType;
 
     TokenizerBase(const std::string& filename, std::istream& in, std::ostream& out)
     : yyFlexLexer(in, out), _filename(filename) { init(); }
@@ -436,10 +392,6 @@ public:
 
     Location& location() {
         return _location;
-    }
-
-    TokenValue read() {
-        return yylex(_stack.top());
     }
 
     void step(int n = 1) {
@@ -452,24 +404,59 @@ public:
 
     void leave() {
         this->yy_pop_state();
+        _leave_flag = true;
     }
 
-    void enter(int group, ValueType&& value) 
+    void enter(int ctx_id, ValueType&& value) 
     {
-        _stack.emplace(ContextType{group, this, std::move(value)});
-        this->yy_push_state(group);
+        _stack.emplace(ctx_id, std::move(value));
+        this->yy_push_state(ctx_id);
     }
-protected:
-    virtual TokenValue yylex(ContextType& ctx) = 0;
 
-    std::stack<TokenizerContext<TokenValue>> _stack{};
+    const char* text() const { return YYText(); }
+    size_t text_length() const { return YYLeng(); }
+
+    operator std::string() const {
+        return {text(), text_length()};
+    }
+
+    TokenValue read() {
+        while (true) {
+            if (_leave_flag) {
+                _leave_flag = false;
+                
+                auto& val = _stack.top();
+                auto tv = capture(val.first, val.second);
+
+                _stack.pop();
+
+                if (not tv.first) { // not discard
+                    return std::move(tv.second);
+                }
+            }
+
+            auto tv = read_one();
+            if (not tv.first) { // not discard
+                return std::move(tv.second);
+            }
+        }
+    }
+
+    ValueType& value() {
+        return _stack.top().second;
+    }
+
+protected:
+    std::stack<std::pair<int, ValueType>> _stack{};
     bool _leave_flag{false};
     std::string _filename{};
     Location _location;
 
     void init() {
-        _stack.emplace(ContextType{"__default__", this, ValueType{}});
+        _stack.emplace(0, ValueType{});
     }
+    virtual std::pair<bool, TokenValue> read_one() = 0;
+    virtual std::pair<bool, TokenValue> capture(int ctx, ValueType&) = 0;
 };
 
 template<typename T>

@@ -28,10 +28,20 @@ def _generate_typedef(cls, args):
     show_name[next_tid] = cls.__eof_token__.show_name
     next_tid += 1
 
+    captures = []
+
+    all_contexts = list()
     all_tokens = set()
-    for _, tokens in scan_info.items():
+    for context, tokens in scan_info.items():
+        if context != '__default__':
+            all_contexts.append(f"    static const int {context};\n")
+
         for token in tokens:
+            discard, fullname = map(
+                token.data.get, ('discard', 'fullname'))
             all_tokens.add(token)
+            if token.capture:
+                captures.append(f'        if ({context} == ctx) {{ return {{ {str(discard).lower()}, TokenValue{{ this->location(), std::move(val), TID_{fullname} }} }}; }}')
 
     all_tokens = list(all_tokens)
     all_tokens.sort(key=lambda t: t.fullname)
@@ -56,7 +66,7 @@ def _generate_typedef(cls, args):
     for symbol in cls.__symbols__:
         types.append(symbol.name)
     types.append('__EOF__')
-    type_lines = [f'\n\t{n} /* {i} */' for i,n in enumerate(types)]
+    type_lines = [f'\n/* {i} */ \t{n}' for i,n in enumerate(types)]
 
     p + f"""
 struct __EOF__ : public Token<void> {{
@@ -78,20 +88,26 @@ typedef playlang::TokenValue<VariantValueType> TokenValue;
 
 class Tokenizer : public playlang::TokenizerBase<TokenValue>
 {{
+    friend class playlang::TokenReader<Tokenizer>;
 public:
     typedef TokenValue TokenValueType;
     typedef typename TokenValue::ValueType ValueType;
-    typedef typename playlang::TokenizerBase<TokenValue>::ContextType ContextType;
 
     constexpr static int TokenID_EOF = TID___EOF__;
     constexpr static int TokenID_START = TID___START__;
     typedef struct __EOF__ EOF_Type;
     typedef struct __START__ START_Type;
 
+{"".join(all_contexts)}
     using playlang::TokenizerBase<TokenValue>::TokenizerBase;
 
 protected:
-    TokenValue yylex(ContextType& ctx) override;
+    std::pair<bool, TokenValue> read_one() override;
+
+    std::pair<bool, TokenValue> capture(int ctx, ValueType& val) override {{
+{chr(10).join(captures)}
+        return {{true, TokenValue{{}}}};
+    }}
 }};
 """
     p + f'}} // namespace {args.namespace}'
@@ -110,15 +126,17 @@ def _generate_flex(cls, args):
 using namespace playlang;
 
 #undef YY_DECL
-#define YY_DECL {args.namespace}::TokenValue {args.namespace}::Tokenizer::yylex(ContextType& ctx)
-#define YY_USER_ACTION  ctx->step(yyleng);
+#define YY_DECL std::pair<bool, {args.namespace}::TokenValue> {args.namespace}::Tokenizer::read_one()
+#define YY_USER_ACTION  this->step(yyleng);
 %}}
 
 %option c++ noyywrap
 """
+    all_contexts = []
     for context, tokens in scan_info.items():
         if context != '__default__':
-            p + f'%x {context}'
+            p + f'%x CONTEXT_ID_{context}'
+            all_contexts.append(context)
 
         for token in tokens:
             pattern, discard, fullname = map(
@@ -134,21 +152,26 @@ using namespace playlang;
     p + f"""
 %%
 %{{
-    ctx->step ();
+    this->step ();
 %}}
 """
     for context, tokens in scan_info.items():
         group = ''
         if context != '__default__':
-            group = f'<{context}>'
+            group = f'<CONTEXT_ID_{context}>'
         for token in tokens:
             if token.capture:
                 continue
             pattern, discard, fullname = map(
                 token.data.get, ('pattern', 'discard', 'fullname'))
-            p + f'{group}{{{token.name}}} ctx.text(yytext); return {args.namespace}::TokenValue{{ctx->location(), VariantValueType{{{token.name}{{ctx}}}}, TID_{fullname}}};'
-    p + f'<<EOF>> return {args.namespace}::TokenValue{{ctx->location(), VariantValueType{{ __EOF__{{ctx}} }}, TID___EOF__}};'
+            code = f'return {{ {str(discard).lower()}, {args.namespace}::TokenValue{{this->location(), VariantValueType{{{token.name}{{*this}}}}, TID_{fullname}}} }};'
+            p + f'{group}{{{token.name}}}\t {code}'
+    p + f'<<EOF>> return {{ false, {args.namespace}::TokenValue{{this->location(), VariantValueType{{ __EOF__{{*this}} }}, TID___EOF__}} }};'
 
+    p + "%%"
+
+    for c in all_contexts:
+        p + f'const int {args.namespace}::Tokenizer::{c} = CONTEXT_ID_{c};'
 
 def _generate_parser(cls, args):
     scan_info = cls.__scan_info__  # type: dict
@@ -169,10 +192,11 @@ def _generate_parser(cls, args):
         states_ids[state] = idx
 
     p < """
+template<typename Context>
 class Parser {
 public:
 """
-    p < f'typename __START__::ResultType parse(Tokenizer& tokenizer) {{'
+    p < f'typename __START__::ResultType parse(Context& ctx, Tokenizer& tokenizer) {{'
     p + 'typedef Tokenizer::ValueType ValueType;'
     p + 'typedef Tokenizer::TokenValueType TokenValueType;'
     p + f'std::stack<int> state_stack{{}};'
@@ -200,7 +224,7 @@ public:
 
         if state.reduce_rule is not None:
             fullname = state.reduce_rule.symbol.fullname
-            p + f'token_reader.produce<{state.reduce_rule.symbol.name}, {", ".join([x.name for x in state.reduce_rule])}>(TID_{fullname});';
+            p + f'token_reader.produce<{state.reduce_rule.symbol.name}, Context, {", ".join([x.name for x in state.reduce_rule])}>(ctx, TID_{fullname});';
             p + f'for(int i = 0 ; i < {len(state.reduce_rule)}; ++i) {{ state_stack.pop(); }}'
             p + 'lookahead = &token_reader.top();'
         else:

@@ -68,7 +68,7 @@ class ParserCalc(metaclass=Parser):
     NEWLINE = Token(r'\n+',
                     discard=True,
                     action=lambda ctx: ctx.lines(len(ctx.text)))
-    WHITE = Token(r'\s+', discard=True)
+    WHITE = Token(r'[ \r\t\v]+', discard=True)
     MISMATCH = Token(r'.', discard=True)
 
     QUOTE = Token(r'"',

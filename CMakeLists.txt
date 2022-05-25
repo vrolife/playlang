@@ -8,10 +8,10 @@ add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.cpp
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/calc_parser.hpp
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/calc_typedef.hpp
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.hpp
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/calc.py
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/playlang/cplusplus.py
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test_py.py
+    DEPENDS ${CMAKE_SOURCE_DIR}/playlang/cplusplus.py
+    DEPENDS ${CMAKE_SOURCE_DIR}/test_py.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/calc.py 
         --namespace calc 
         --include calc.hpp
@@ -20,17 +20,15 @@ add_custom_command(
         --flex ${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.flex
     COMMAND flex 
         --yyclass=calc::Tokenizer 
-        --header-file=${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.hpp
         -o ${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.cpp 
         ${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.flex
 )
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 add_executable(clac 
-    calc.cpp
+    cpp/calc.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/calc_parser.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/calc_typedef.hpp
 )
