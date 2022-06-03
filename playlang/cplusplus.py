@@ -272,11 +272,11 @@ def _open_file(fn):
 
 def generate(cls, argv=None): 
     argp = argparse.ArgumentParser()
-    argp.add_argument('--include', help='header to be include in all generated c++ files')
-    argp.add_argument('--namespace')
-    argp.add_argument('--parser', help='output file name for parser')
-    argp.add_argument('--flex', help='output file name for flex. see https://github.com/westes/flex.git')
-    argp.add_argument('--typedef', help='output file name for type definition')
+    argp.add_argument('--include', required=True, help='header to be include in all generated c++ files')
+    argp.add_argument('--namespace', required=True, help='c++ namespace')
+    argp.add_argument('--parser', required=True, help='output file name for parser')
+    argp.add_argument('--flex', required=True, help='output file name for flex. see https://github.com/westes/flex.git')
+    argp.add_argument('--typedef', required=True, help='output file name for type definition')
     args = argp.parse_args(argv)
 
     args.parser = _open_file(args.parser)
