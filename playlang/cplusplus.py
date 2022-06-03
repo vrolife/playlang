@@ -133,6 +133,7 @@ using namespace playlang;
 %option c++ noyywrap
 """
     all_contexts = []
+    patterns = []
     for context, tokens in scan_info.items():
         if context != '__default__':
             p + f'%x CONTEXT_ID_{context}'
@@ -141,12 +142,15 @@ using namespace playlang;
         for token in tokens:
             pattern, discard, fullname = map(
                 token.data.get, ('pattern', 'discard', 'fullname'))
+            if fullname in patterns:
+                continue
+            patterns.append(fullname)
             if token.capture:
                 continue
             if pattern is None:
                 raise TypeError(f'token missing action: {token}')
             pattern = pattern.replace(r'"', r'\"')
-            p + f'{token.name} {pattern}'
+            p + f'{fullname} {pattern}'
         p + ''
 
     p + f"""
@@ -165,7 +169,7 @@ using namespace playlang;
             pattern, discard, fullname = map(
                 token.data.get, ('pattern', 'discard', 'fullname'))
             code = f'return {{ {str(discard).lower()}, {args.namespace}::TokenValue{{this->location(), VariantValueType{{{token.name}{{*this}}}}, TID_{fullname}}} }};'
-            p + f'{group}{{{token.name}}}\t {code}'
+            p + f'{group}{{{fullname}}}\t {code}'
     p + f'<<EOF>> return {{ false, {args.namespace}::TokenValue{{this->location(), VariantValueType{{ __EOF__{{*this}} }}, TID___EOF__}} }};'
 
     p + "%%"
@@ -174,7 +178,6 @@ using namespace playlang;
         p + f'const int {args.namespace}::Tokenizer::{c} = CONTEXT_ID_{c};'
 
 def _generate_parser(cls, args):
-    scan_info = cls.__scan_info__  # type: dict
     p = Printer(args.parser)
     p + '// generated code'
     p + f'#ifndef __{args.namespace}_parser_hpp__'
