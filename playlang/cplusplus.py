@@ -69,24 +69,25 @@ def _generate_typedef(cls, args):
     type_lines = [f'\n/* {i} */ \t{n}' for i,n in enumerate(types)]
 
     p + f"""
-struct __EOF__ : public Token<void> {{
+struct __EOF__ : public playlang::Token<void> {{
     template<typename C>
-    __EOF__(C& ctx) {{}}
-    __EOF__() {{}}
+    explicit __EOF__(C& ctx) {{}};
+    __EOF__() = default;
 }};
 
-struct __START__ : public Symbol<typename {cls.__start_symbol__.name}::ValueType> {{
+struct __START__ : public playlang::Symbol<typename {cls.__start_symbol__.name}::ValueType> {{
     typedef typename {cls.__start_symbol__.name}::ValueType ResultType;
-    __START__({cls.__start_symbol__.name}& s, __EOF__) 
-    : Symbol<typename {cls.__start_symbol__.name}::ValueType>(std::move(s.value()))
+    __START__({cls.__start_symbol__.name}& s, __EOF__& _) 
+    : playlang::Symbol<typename {cls.__start_symbol__.name}::ValueType>(std::move(s.value()))
     {{ }}
 }};
 
-typedef Variant<{", ".join(type_lines)}
+typedef playlang::Variant<{", ".join(type_lines)}
 > VariantValueType;
 typedef playlang::TokenValue<VariantValueType> TokenValue;
 
 class Tokenizer : public playlang::TokenizerBase<TokenValue>
+{f', public {args.statefull_tokenizer}' if args.statefull_tokenizer else ''}
 {{
     friend class playlang::TokenReader<Tokenizer>;
 public:
@@ -204,7 +205,7 @@ public:
     p + 'typedef Tokenizer::TokenValueType TokenValueType;'
     p + f'std::stack<int> state_stack{{}};'
     p + f'state_stack.push({states_ids[cls.__state_tree__]});'
-    p + f'TokenReader<Tokenizer> token_reader{{tokenizer}};'  # nopep8
+    p + f'playlang::TokenReader<Tokenizer> token_reader{{tokenizer}};'  # nopep8
     p + 'TokenValueType* lookahead = token_reader.peek();'
 
     p < 'while(!token_reader.done()) {'
@@ -219,7 +220,7 @@ public:
             for ts, st in state.branchs.items():
                 p + f'case TID_{ts.fullname}:'
                 p << f'state_stack.push({states_ids[st]});'
-                p + 'if (lookahead->token() < 20000) token_reader.read();'
+                p + 'if (lookahead->token() < 20000) { token_reader.read(); }'
                 p + 'lookahead = token_reader.peek();'
                 p >> 'break;'
 
@@ -227,7 +228,12 @@ public:
 
         if state.reduce_rule is not None:
             fullname = state.reduce_rule.symbol.fullname
-            p + f'token_reader.produce<{state.reduce_rule.symbol.name}, Context, {", ".join([x.name for x in state.reduce_rule])}>(ctx, TID_{fullname});';
+            targs = [
+                state.reduce_rule.symbol.name,
+                'Context'
+            ]
+            targs.extend([x.name for x in state.reduce_rule])
+            p + f'token_reader.produce<{", ".join(targs)}>(ctx, TID_{fullname});';
             p + f'for(int i = 0 ; i < {len(state.reduce_rule)}; ++i) {{ state_stack.pop(); }}'
             p + 'lookahead = &token_reader.top();'
         else:
@@ -280,6 +286,7 @@ def generate(cls, argv=None):
     argp.add_argument('--parser', required=True, help='output file name for parser')
     argp.add_argument('--flex', required=True, help='output file name for flex. see https://github.com/westes/flex.git')
     argp.add_argument('--typedef', required=True, help='output file name for type definition')
+    argp.add_argument('--statefull-tokenizer', type=str, default='', help='class name. generated tokenizer will inherit this class')
     args = argp.parse_args(argv)
 
     args.parser = _open_file(args.parser)

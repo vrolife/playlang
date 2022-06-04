@@ -27,4 +27,5 @@ int main(int argc, const char* argv[])
     assert(exec("x=1+2*-3") == -5);
     assert(exec("2+3 *4+5") == 19);
     assert(exec("x*4") == -20);
+    return 0;
 }

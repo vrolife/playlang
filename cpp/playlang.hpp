@@ -53,12 +53,18 @@ struct make_seq<N, N-1, I...>
    typedef seq<I..., N-1> type;
 };
 
+template<size_t... I>
+struct make_seq<0, 0, I...>
+{
+   typedef seq<I...> type;
+};
+
 template<size_t N, size_t I0, size_t... I>
 struct make_seq<N, I0, I...> : make_seq<N, I0 + 1, I..., I0>
 { };
 
 template<typename T, typename Context, typename Tuple, typename Array, size_t... Index>
-typename std::enable_if<!T::Contextful, T>::
+typename std::enable_if<not T::Contextful, T>::
 type build_with_args(Context& ctx, Array&& a, seq<Index...>)
 {
     return T{a[Index].template as<typename std::tuple_element<Index,Tuple>::type>()...};
@@ -83,9 +89,9 @@ T build(Context& ctx, Array&& a) {
 }
 
 template<typename... Types>
-class Variant
+class alignas(8) Variant
 {
-   char _memory[internal::union_size<Types...>::size];
+   char _memory[internal::union_size<Types...>::size]{};
    int _type{-1};
 
    template<typename T, typename... TS>
@@ -162,7 +168,7 @@ public:
       _copy<Types...>(other);
    }
 
-   Variant(Variant&& other) {
+   Variant(Variant&& other)  noexcept {
       if (other.empty()) {
          _type = -1;
          return;
@@ -180,7 +186,7 @@ public:
       return *this;
    }
 
-   Variant& operator =(Variant&& other) {
+   Variant& operator =(Variant&& other)  noexcept {
       reset();
       if (not other.empty()) {
          _move<Types...>(std::move(other));
@@ -242,12 +248,16 @@ struct Location {
     int _line_number;
     int _column;
 
-    Location(int line_number = 0, int column = 0)
+    explicit Location(int line_number = 0, int column = 0)
     : _line_number(line_number), _column(column)
     { }
 
+    ~Location() = default;
+
     Location(const Location&) = default;
     Location& operator =(const Location&) = default;
+    Location(Location&&) noexcept = default;
+    Location& operator =(Location&&) noexcept = default;
 
     void lines(int n) {
         this->_line_number += n;
@@ -269,8 +279,8 @@ class Token {
 public:
     constexpr static bool Contextful = Context;
     typedef T ValueType;
-    Token(T&& val):_value(std::move(val)) { }
-    Token(const T& val):_value(val) { }
+    explicit Token(T&& val):_value(std::move(val)) { }
+    explicit Token(const T& val):_value(val) { }
 
     operator T&() { return _value; }
     operator const T&() const { return _value; }
@@ -281,6 +291,10 @@ public:
     }
     T& value() { return _value; }
     const T& value() const { return _value; }
+    T release() {
+        auto tmp = std::move(_value);
+        return std::move(tmp);
+    }
 };
 
 template<bool Context>
@@ -309,7 +323,7 @@ class TokenReader
     }
 
 public:
-    TokenReader(Tokenizer& tokenizer)
+    explicit TokenReader(Tokenizer& tokenizer)
     : _tokenizer(tokenizer)
     {
         
@@ -385,31 +399,37 @@ public:
     typedef typename TokenValue::ValueType ValueType;
 
     TokenizerBase(const std::string& filename, std::istream& in, std::ostream& out)
-    : yyFlexLexer(in, out), _filename(filename) { init(); }
+    : yyFlexLexer(in, out), _tok_filename(filename) { init(); }
 
-    TokenizerBase(const std::string& filename, std::istream* in = 0, std::ostream* out = 0)
-    : yyFlexLexer(in, out), _filename(filename) { init(); }
+    explicit TokenizerBase(const std::string& filename, std::istream* in = 0, std::ostream* out = 0)
+    : yyFlexLexer(in, out), _tok_filename(filename) { init(); }
 
     Location& location() {
-        return _location;
+        return _tok_location;
     }
 
     void step(int n = 1) {
-        _location.step(n);
+        _tok_location.step(n);
     }
 
     void lines(int n = 1) {
-        _location.lines(n);
+        _tok_location.lines(n);
     }
 
     void leave() {
         this->yy_pop_state();
-        _leave_flag = true;
+        _tok_leave_flag = true;
     }
 
     void enter(int ctx_id, ValueType&& value) 
     {
-        _stack.emplace(ctx_id, std::move(value));
+        _tok_stack.emplace(ctx_id, std::move(value));
+        this->yy_push_state(ctx_id);
+    }
+
+    void enter(int ctx_id) 
+    {
+        _tok_stack.emplace(ctx_id, ValueType{});
         this->yy_push_state(ctx_id);
     }
 
@@ -422,13 +442,14 @@ public:
 
     TokenValue read() {
         while (true) {
-            if (_leave_flag) {
-                _leave_flag = false;
+            if (_tok_leave_flag) {
+                _tok_leave_flag = false;
                 
-                auto& val = _stack.top();
+                auto& val = _tok_stack.top();
                 auto tv = capture(val.first, val.second);
 
-                _stack.pop();
+                _tok_stack.pop();
+                assert(_tok_stack.size() > 0);
 
                 if (not tv.first) { // not discard
                     return std::move(tv.second);
@@ -443,17 +464,17 @@ public:
     }
 
     ValueType& value() {
-        return _stack.top().second;
+        return _tok_stack.top().second;
     }
 
 protected:
-    std::stack<std::pair<int, ValueType>> _stack{};
-    bool _leave_flag{false};
-    std::string _filename{};
-    Location _location;
+    std::stack<std::pair<int, ValueType>> _tok_stack{};
+    bool _tok_leave_flag{false};
+    std::string _tok_filename{};
+    Location _tok_location;
 
     void init() {
-        _stack.emplace(0, ValueType{});
+        _tok_stack.emplace(0, ValueType{});
     }
     virtual std::pair<bool, TokenValue> read_one() = 0;
     virtual std::pair<bool, TokenValue> capture(int ctx, ValueType&) = 0;
@@ -471,14 +492,15 @@ private:
 
 public:
     TokenValue() = default;
+    ~TokenValue() = default;
     TokenValue(const Location& loc, ValueType&& value, int token)
     : _location(loc), _value(std::move(value)), _token(token)
     { }
 
     TokenValue(const TokenValue&) = default;
-    TokenValue(TokenValue&&) = default;
+    TokenValue(TokenValue&&) noexcept = default;
     TokenValue& operator =(const TokenValue&) = default;
-    TokenValue& operator =(TokenValue&&) = default;
+    TokenValue& operator =(TokenValue&&) noexcept = default;
 
     bool valid() {
         return not _value.empty();
