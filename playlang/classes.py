@@ -256,7 +256,7 @@ class State:
 
 
 class Location:
-    def __init__(self, line_num=0, column=0, filename=None):
+    def __init__(self, line_num=1, column=1, filename=None):
         self._filename = filename
         self._line_num = line_num
         self._column = column
@@ -275,7 +275,7 @@ class Location:
 
     def lines(self, n):
         self._line_num += n
-        self._column = 0
+        self._column = 1
         return None
 
     def step(self, n):

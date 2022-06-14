@@ -14,7 +14,7 @@
 
 namespace playlang {
     
-namespace internal {
+namespace detail {
 
 template<typename T, typename... Types>
 struct union_size
@@ -91,12 +91,12 @@ T build(Context& ctx, Array&& a) {
 template<typename... Types>
 class alignas(8) Variant
 {
-   char _memory[internal::union_size<Types...>::size]{};
+   char _memory[detail::union_size<Types...>::size]{};
    int _type{-1};
 
    template<typename T, typename... TS>
    void _free() {
-      auto t = internal::union_index<T, 0, Types...>::index;
+      auto t = detail::union_index<T, 0, Types...>::index;
       if (t == _type) {
          reinterpret_cast<T*>(&_memory[0])->~T();
          return;
@@ -110,7 +110,7 @@ class alignas(8) Variant
 
    template<typename T, typename... TS>
    void _copy(const Variant& other) {
-      auto t = internal::union_index<T, 0, Types...>::index;
+      auto t = detail::union_index<T, 0, Types...>::index;
       if (t == other._type) {
          new(_memory)T(*reinterpret_cast<T*>(&other._memory[0]));
          _type = other._type;
@@ -125,7 +125,7 @@ class alignas(8) Variant
 
    template<typename T, typename... TS>
    void _move(Variant&& other) {
-      auto t = internal::union_index<T, 0, Types...>::index;
+      auto t = detail::union_index<T, 0, Types...>::index;
       if (t == other._type) {
          new(_memory)T(std::move(*reinterpret_cast<T*>(&other._memory[0])));
          _type = other._type;
@@ -141,7 +141,7 @@ class alignas(8) Variant
 
    template<typename T, typename... TS>
    bool _eq(const Variant& other) {
-      auto t = internal::union_index<T, 0, Types...>::index;
+      auto t = detail::union_index<T, 0, Types...>::index;
       if (t == other._type) {
          return this->as<T>() == other.as<T>();
       }
@@ -204,7 +204,7 @@ public:
 
    template<typename T, typename... Args>
    T& emplace(Args&&... args) {
-      auto t = internal::union_index<T, 0, Types...>::index;
+      auto t = detail::union_index<T, 0, Types...>::index;
       if (t == -1) {
          throw std::bad_cast();
       }
@@ -227,7 +227,7 @@ public:
 
    template<typename T>
    T& as() {
-      auto t = internal::union_index<T, 0, Types...>::index;
+      auto t = detail::union_index<T, 0, Types...>::index;
       if (t != _type) {
          throw std::bad_cast();
       }
@@ -236,7 +236,7 @@ public:
 
    template<typename T>
    const T& as() const {
-      auto t = internal::union_index<T, 0, Types...>::index;
+      auto t = detail::union_index<T, 0, Types...>::index;
       if (t != _type) {
          throw std::bad_cast();
       }
@@ -387,7 +387,7 @@ public:
             args[N - i -1] = std::move(pop().value());
         }
         typedef std::tuple<C...> Tuple;
-        push({_tokenizer.location(), ValueType{internal::build<T, Context, Tuple>(ctx, args)}, token});
+        push({_tokenizer.location(), ValueType{detail::build<T, Context, Tuple>(ctx, args)}, token});
     }
 };
 
