@@ -24,19 +24,18 @@ def _generate_typedef(cls, args):
 
     next_tid = 1
 
-    p + f'#define TID___EOF__ {next_tid}'  # nopep8
-    show_name[next_tid] = cls.__eof_token__.show_name
-    next_tid += 1
-
     captures = []
 
     all_contexts = list()
     all_tokens = set()
-    for context, tokens in scan_info.items():
-        if context != '__default__':
+    eof_token = None
+    for context, scanner in scan_info.items():
+        if context == '__default__':
+            eof_token = scanner.eof_token
+        else:
             all_contexts.append(f"    static const int {context};\n")
 
-        for token in tokens:
+        for token in scanner.tokens:
             discard, fullname = map(
                 token.data.get, ('discard', 'fullname'))
             all_tokens.add(token)
@@ -94,7 +93,7 @@ public:
     typedef TokenValue TokenValueType;
     typedef typename TokenValue::ValueType ValueType;
 
-    constexpr static int TokenID_EOF = TID___EOF__;
+    constexpr static int TokenID_EOF = TID_{eof_token.fullname};
     constexpr static int TokenID_START = TID___START__;
     typedef struct __EOF__ EOF_Type;
     typedef struct __START__ START_Type;
@@ -135,18 +134,20 @@ using namespace playlang;
 """
     all_contexts = []
     patterns = []
-    for context, tokens in scan_info.items():
+    for context, scanner in scan_info.items():
         if context != '__default__':
             p + f'%x CONTEXT_ID_{context}'
             all_contexts.append(context)
 
-        for token in tokens:
+        for token in scanner.tokens:
             pattern, discard, fullname = map(
                 token.data.get, ('pattern', 'discard', 'fullname'))
             if fullname in patterns:
                 continue
             patterns.append(fullname)
             if token.capture:
+                continue
+            if token.is_eof:
                 continue
             if pattern is None:
                 raise TypeError(f'token missing action: {token}')
@@ -160,18 +161,20 @@ using namespace playlang;
     this->step ();
 %}}
 """
-    for context, tokens in scan_info.items():
+    for context, scanner in scan_info.items():
         group = ''
         if context != '__default__':
             group = f'<CONTEXT_ID_{context}>'
-        for token in tokens:
+        for token in scanner.tokens:
             if token.capture:
                 continue
             pattern, discard, fullname = map(
                 token.data.get, ('pattern', 'discard', 'fullname'))
-            code = f'return {{ {str(discard).lower()}, {args.namespace}::TokenValue{{this->location(), VariantValueType{{{token.name}{{*this}}}}, TID_{fullname}}} }};'
-            p + f'{group}{{{fullname}}}\t {code}'
-    p + f'<<EOF>> return {{ false, {args.namespace}::TokenValue{{this->location(), VariantValueType{{ __EOF__{{*this}} }}, TID___EOF__}} }};'
+            code = f'return {{ {str(bool(discard)).lower()}, {args.namespace}::TokenValue{{this->location(), VariantValueType{{{token.name}{{*this}}}}, TID_{fullname}}} }};'
+            pattern_name = f'{{{fullname}}}'
+            if token.is_eof:
+                pattern_name = '<<EOF>>'
+            p + f'{group}{pattern_name}\t {code}'
 
     p + "%%"
 

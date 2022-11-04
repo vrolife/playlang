@@ -142,3 +142,4 @@ cython_debug/
 .js
 parser.mjs
 .test_*
+cmake-build
