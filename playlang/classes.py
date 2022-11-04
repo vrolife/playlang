@@ -72,6 +72,10 @@ class Terminal(collections.UserDict):
     def name(self):
         return self.data['name']
 
+    @property
+    def is_eof(self):
+        return self.data.get('is_eof', False)
+
     def __repr__(self):
         return self.name
 
@@ -323,7 +327,7 @@ def Action(action):
 def Token(pattern=None,
           discard=False,
           ignorable=False,
-          eof=False,
+          is_eof=False,
           **kwargs) -> TokenInfo:
     """Define a token
 
@@ -343,7 +347,7 @@ def Token(pattern=None,
     ti.data['pattern'] = pattern
     ti.data['discard'] = discard
     ti.data['ignorable'] = ignorable
-    ti.data['eof'] = eof
+    ti.data['is_eof'] = is_eof
     ti.data.update(kwargs)
     return ti
 
@@ -364,10 +368,14 @@ class Start:
         self.symbol = symbol
 
 
-class Scan:
+class Scanner:
     def __init__(self, *tokens, name='__default__', capture: Terminal = None):
         self.tokens = tokens
         self.name = name
+        self.eof_token = None
+        for tok in tokens:
+            if tok.is_eof:
+                self.eof_token = tok
         if capture is not None:
             capture.data['capture'] = True
             self.tokens = list(tokens)

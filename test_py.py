@@ -4,8 +4,8 @@
 import io
 import logging
 import unittest
-from playlang import Parser, Token, Rule, Precedence, Scan, Start,\
-    Action, ShowName, Scanner, StaticScanner, \
+from playlang import Parser, Token, Rule, Precedence, Scanner, Start,\
+    Action, ShowName, Tokenizer, StaticTokenizer, \
     ConflictReduceReduceError, ConflictShiftReduceError
 from playlang.classes import SymbolRule, Terminal
 from playlang.syntex import Syntax
@@ -36,8 +36,10 @@ class TestConflict(unittest.TestCase):
         EXPR.rules.append(SymbolRule(EXPR, (LIST,)))
         EXPR.rules.append(SymbolRule(EXPR, (A, B)))
 
+        EOF = syntax.terminal('__EOF__')
+
         self.assertRaises(ConflictReduceReduceError,
-                          lambda: syntax.generate(EXPR))
+                          lambda: syntax.generate(EXPR, EOF))
 
     def test_shift_reduce(self):
         syntax = Syntax('TEST', auto_shift=False)
@@ -52,8 +54,10 @@ class TestConflict(unittest.TestCase):
         EXPR.rules.append(SymbolRule(EXPR, (LIST,)))
         EXPR.rules.append(SymbolRule(EXPR, (A,)))
 
+        EOF = syntax.terminal('__EOF__')
+
         self.assertRaises(ConflictShiftReduceError,
-                          lambda: syntax.generate(EXPR))
+                          lambda: syntax.generate(EXPR, EOF))
 
 
 class ParserCalc(metaclass=Parser):
@@ -106,9 +110,9 @@ class ParserCalc(metaclass=Parser):
     RPAR = Token(r'\)')
     UMINUS = Token(r'-')
 
-    _ = Scan(NUMBER, NAME, EQUALS, PLUS, MINUS, TIMES,
+    _ = Scanner(NUMBER, NAME, EQUALS, PLUS, MINUS, TIMES,
             DIVIDE, LPAR, RPAR, QUOTE, NEWLINE, WHITE, MISMATCH)
-    _ = Scan(STRING_QUOTE, STRING_ESCAPE, STRING_CHAR,
+    _ = Scanner(STRING_QUOTE, STRING_ESCAPE, STRING_CHAR,
             name="string", capture=STRING)
 
     @JavaScript('throw Error("missmatch")')
@@ -174,7 +178,7 @@ class ParserCalc(metaclass=Parser):
 
     _ = Start(EXPR)
 
-    scanner = StaticScanner(default_action=lambda ctx: ctx.step(len(ctx.text)))
+    scanner = StaticTokenizer(default_action=lambda ctx: ctx.step(len(ctx.text)))
 
     def __init__(self):
         self.names = {}
@@ -247,20 +251,20 @@ class TestCalc(unittest.TestCase):
     def test_calc2(self):
         compiler = ParserCalc()
 
-        scanner = Scanner(
+        tokenizer = Tokenizer(
             ParserCalc, default_action=lambda ctx: ctx.step())
 
         tokens = []
 
-        for tv in scanner("a=1+1"):
+        for tv in tokenizer("a=1+1", eof_stop=True):
             tokens.append(tv.token)
 
-        self.assertListEqual(tokens, [
+        self.assertListEqual(tokens[:-1], [
             compiler.NAME, compiler.EQUALS, compiler.NUMBER, compiler.PLUS, compiler.NUMBER])
 
 
 class TemplateParser(metaclass=Parser):
-    EOF = Token(eof=True)
+    EOF = Token(is_eof=True)
 
     BEGIN = Token(r'\${',
                   discard=True,
@@ -293,8 +297,8 @@ class TemplateParser(metaclass=Parser):
                 action=lambda ctx: ctx.leave(),
                 javascript='ctx.leave()')
 
-    _ = Scan(BEGIN, TEXT, MISMATCH)
-    expression = Scan(END, NAME, DOT, LB, RB, INTEGER,
+    _ = Scanner(BEGIN, TEXT, MISMATCH)
+    expression = Scanner(END, NAME, DOT, LB, RB, INTEGER,
                       MISMATCH, name='expression')
 
     @JavaScript('return ctx => ctx.get_prev_instance()[$2]')
@@ -348,7 +352,7 @@ class TemplateParser(metaclass=Parser):
 
     _ = Start(ASSEMBLY)
 
-    scan = StaticScanner(default_action=lambda ctx: ctx.step())
+    scan = StaticTokenizer(default_action=lambda ctx: ctx.step())
 
     def __init__(self):
         pass
@@ -373,17 +377,17 @@ class TestContext:
 
 class TestTemplateParser(unittest.TestCase):
 
-    def test_scanner_ref_only(self):
+    def test_tokenizer_ref_only(self):
         c = TemplateParser
 
-        self.assertListEqual([tv.token for tv in c.scan('${.hello}')], [
+        self.assertListEqual([tv.token for tv in list(c.scan('${.hello}', eof_stop=True))[:-1]], [
             c.DOT,
             c.NAME,
         ])
 
-    def test_scanner_text_and_ref(self):
+    def test_tokenizer_text_and_ref(self):
         c = TemplateParser
-        self.assertListEqual([tv.token for tv in c.scan('A${.hello}B')], [
+        self.assertListEqual([tv.token for tv in list(c.scan('A${.hello}B', eof_stop=True))[:-1]], [
             c.TEXT,
             c.DOT,
             c.NAME,
@@ -427,7 +431,7 @@ class ParserListWithTemplate(metaclass=Parser):
                      action=lambda ctx: throw(MismatchError, ctx.text),
                      javascript='throw Error(`missmatch: ${ctx.text}`)')
 
-    _ = Scan(TMP.BEGIN, DIGITS, NEWLINE, WHITE, MISMATCH)
+    _ = Scanner(TMP.BEGIN, DIGITS, NEWLINE, WHITE, MISMATCH)
     expression = TMP.expression
 
     @JavaScript('return $1')
@@ -459,11 +463,11 @@ class ParserListWithTemplate(metaclass=Parser):
     _ = Start(EXPR)
 
     def __init__(self):
-        self._scanner = Scanner(
+        self._tokenizer = Tokenizer(
             ParserListWithTemplate, default_action=lambda ctx: ctx.step(len(ctx.text)))
 
     def parse_string(self, string):
-        return ParserListWithTemplate.parse(self._scanner(string), context=self)
+        return ParserListWithTemplate.parse(self._tokenizer(string), context=self)
 
 
 class TestListWithTemplate(unittest.TestCase):
@@ -481,7 +485,7 @@ class TestListWithTemplate(unittest.TestCase):
 
 
 class ParserPair(metaclass=Parser):
-    EOF = Token(None, eof=True, show_name='End-Of-File')
+    EOF = Token(None, is_eof=True, show_name='End-Of-File')
     NAME = Token(r'[a-zA-Z]+')
     DIGITS = Token(r'\d+')
     NEWLINE = Token(r'\n+',
@@ -489,7 +493,7 @@ class ParserPair(metaclass=Parser):
     WHITE = Token(r'\s+', discard=True)
     MISMATCH = Token(r'.', action=lambda ctx: throw(MismatchError, ctx.text))
 
-    _ = Scan(NAME, DIGITS, NEWLINE, WHITE, MISMATCH)
+    _ = Scanner(NAME, DIGITS, NEWLINE, WHITE, MISMATCH, EOF)
 
     @ShowName('Number')
     @Rule(DIGITS)
@@ -520,11 +524,11 @@ class ParserPair(metaclass=Parser):
     _ = Start(LIST)
 
     def __init__(self):
-        self._scanner = Scanner(
+        self._tokenizer = Tokenizer(
             ParserPair, default_action=lambda ctx: ctx.step(len(ctx.text)))
 
     def parse_string(self, string):
-        return ParserPair.parse(self._scanner(string), context=self)
+        return ParserPair.parse(self._tokenizer(string), context=self)
 
 
 class TestPair(unittest.TestCase):
@@ -552,7 +556,7 @@ class ParserList(metaclass=Parser):
     WHITE = Token(r'\s+', discard=True)
     MISMATCH = Token(r'.', action=lambda ctx: throw(MismatchError, ctx.text))
 
-    _ = Scan(DIGITS, NEWLINE, WHITE, MISMATCH)
+    _ = Scanner(DIGITS, NEWLINE, WHITE, MISMATCH)
 
     @Rule(DIGITS)
     def NUMBER(self, val):
@@ -574,11 +578,11 @@ class ParserList(metaclass=Parser):
     _ = Start(EXPR)
 
     def __init__(self):
-        self._scanner = Scanner(
+        self._tokenizer = Tokenizer(
             ParserList, default_action=lambda ctx: ctx.step(len(ctx.text)))
 
     def parse_string(self, string):
-        return ParserList.parse(self._scanner(string), context=self)
+        return ParserList.parse(self._tokenizer(string), context=self)
 
 
 class TestList(unittest.TestCase):
@@ -609,7 +613,7 @@ class ParserList2(metaclass=Parser):
     _ = Precedence.Increase
     A_FIRST = Token()
 
-    _ = Scan(DIGITS, NEWLINE, WHITE, MISMATCH)
+    _ = Scanner(DIGITS, NEWLINE, WHITE, MISMATCH)
 
     @Rule(DIGITS)
     def NUMBER(self, val):
@@ -641,11 +645,11 @@ class ParserList2(metaclass=Parser):
     _ = Start(S)
 
     def __init__(self):
-        self._scanner = Scanner(
+        self._tokenizer = Tokenizer(
             ParserList2, default_action=lambda ctx: ctx.step(len(ctx.text)))
 
     def parse_string(self, string):
-        return ParserList2.parse(self._scanner(string), context=self)
+        return ParserList2.parse(self._tokenizer(string), context=self)
 
 class TestList2(unittest.TestCase):
     def test_simple(self):
@@ -658,9 +662,9 @@ class TestScanner(unittest.TestCase):
         super().__init__(*args, **kwargs)
 
         scan_info = {
-            '__default__': ['DIGITS', 'QUOTE', 'NEWLINE', 'WHITE', 'MISMATCH'],
+            '__default__': ['DIGITS', 'QUOTE', 'NEWLINE', 'WHITE', 'MISMATCH', 'DEFAULT__EOF__'],
             'string': ['STRING_QUOTE', 'STRING_ESCAPE', 'STRING_NEWLINE',
-                       'STRING_CHAR', 'MISMATCH', 'STRING']
+                       'STRING_CHAR', 'MISMATCH', 'STRING', 'STRING__EOF__']
         }
 
         tokens = {
@@ -710,33 +714,41 @@ class TestScanner(unittest.TestCase):
                 'pattern': r'.',
                 'action': lambda ctx: throw(MismatchError, ctx.text),
                 'discard': True
+            },
+            'DEFAULT__EOF__': {
+                'is_eof': True,
+                'action': None
+            },
+            'STRING__EOF__': {
+                'is_eof': True,
+                'action': None
             }
         }
 
-        si = {}
+        scanners = {}
 
-        for ctx, toks in scan_info.items():
+        for ctx, scanner in scan_info.items():
             lst = []
-            for name in toks:
+            for name in scanner:
                 info = tokens[name]
                 token = Terminal(name, name, precedence=None)
                 token.data.update(info)
                 lst.append(token)
-            si[ctx] = lst
+            scanners[ctx] = Scanner(*lst, name=ctx)
 
-        self.scanner = Scanner(si, lambda ctx: ctx.step())
+        self.tokenizer = Tokenizer(scanners, lambda ctx: ctx.step())
 
         self.scan = lambda s: list(
-            map(lambda v: v.value, self.scanner(s)))
+            map(lambda v: v.value, self.tokenizer(s, eof_stop=True)))
 
     def test_simple(self):
-        self.assertListEqual(self.scan('123'), ['1', '2', '3'])
+        self.assertListEqual(self.scan('123'), ['1', '2', '3', '__EOF__'])
 
     def test_discard(self):
-        self.assertListEqual(self.scan('12 3'), ['1', '2', '3'])
+        self.assertListEqual(self.scan('12 3'), ['1', '2', '3', '__EOF__'])
 
     def test_newline(self):
-        self.assertListEqual(self.scan('1\n2'), ['1', '\n', '2'])
+        self.assertListEqual(self.scan('1\n2'), ['1', '\n', '2', '__EOF__'])
 
     def test_string_missing_terminator(self):
         self.assertRaises(MismatchError, lambda: self.scan('1"\n"2'))
@@ -747,7 +759,42 @@ class TestScanner(unittest.TestCase):
         self.assertRaises(MismatchError, lambda *args: self.scan('1x'))
 
     def test_context(self):
-        self.assertListEqual(self.scan('1"2\\"2"3'), ['1', '2"2', '3'])
+        self.assertListEqual(self.scan('1"2\\"2"3'), ['1', '2"2', '3', '__EOF__'])
+
+
+class ParseBareString(metaclass=Parser):
+    WHITE = Token(r'[ \r\t\v]+', discard=True)
+    EQ = Token(r'=', discard=True, action=lambda ctx: ctx.enter('text', io.StringIO()))
+    MISMATCH = Token(r'.', action=lambda ctx: throw(MismatchError, ctx.text))
+
+    TEXT_NL = Token(r'\n', discard=True, action=lambda ctx: ctx.leave())
+    TEXT_CHAR = Token(r'[^\s]+', discard=True, action=lambda ctx: ctx.value.write(ctx.text))
+    TEXT_EOF = Token(discard=True, is_eof=True, action=lambda ctx: ctx.leave())
+    TEXT = Token(action=lambda ctx: ctx.value.getvalue())
+
+    _ = Scanner(WHITE, EQ, MISMATCH)
+    _ = Scanner(TEXT_NL, TEXT_CHAR, TEXT_EOF, name='text', capture=TEXT)
+
+    scanner = StaticTokenizer(default_action=lambda ctx: ctx.step(len(ctx.text)))
+
+    @Rule(TEXT)
+    @staticmethod
+    def CONFIG(self, text):
+        pass
+
+    _ = Start(CONFIG)
+
+    def __init__(self):
+        pass
+
+    def parse_string(self, string):
+        return ParseBareString.parse(ParseBareString.scanner(string), context=self)
+
+
+class TestEOFAction(unittest.TestCase):
+    def test_eof_action(self):
+        parser = ParseBareString()
+        parser.parse_string('=y')
 
 
 # UPG

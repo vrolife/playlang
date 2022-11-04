@@ -13,8 +13,6 @@ class Syntax:
         self._merged_states = set()
         self._current_precedence = TerminalPrecedence(0)
 
-        self.__EOF__ = self.terminal('__EOF__', '__EOF__')
-        self.__EOF__.data['show_name'] = 'End-Of-File'
         self.__START__ = self.symbol('__START__', '__START__')
 
     @property
@@ -70,12 +68,12 @@ class Syntax:
 
         return token
 
-    def generate(self, start_symbol):
+    def generate(self, start_symbol, eof_token):
         def reduce_start_symbol(ctx, v, _):
             return v
 
         self.__START__.rules.append(SymbolRule(
-            self.__START__, [start_symbol, self.__EOF__], reduce_start_symbol))
+            self.__START__, [start_symbol, eof_token], reduce_start_symbol))
 
         root_state = self._generate_state_tree(self.__START__)
 

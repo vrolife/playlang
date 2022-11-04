@@ -1,7 +1,7 @@
 from playlang.errors import *
-from playlang.classes import Location, Rule, Precedence, Scan, Start, Action, Token, ShowName
+from playlang.classes import Location, Rule, Precedence, Scanner, Start, Action, Token, ShowName
 from playlang.parser import Parser
-from playlang.scanner import Scanner, StaticScanner
+from playlang.tokenizer import Tokenizer, StaticTokenizer
 
 __all__ = [
     'ConflictError',
@@ -10,10 +10,10 @@ __all__ = [
 
     'Location',
     'Token',
-    'Scan',
-    'Action',
     'Scanner',
-    'StaticScanner',
+    'Action',
+    'Tokenizer',
+    'StaticTokenizer',
     'Rule',
     'Parser',
     'Precedence',

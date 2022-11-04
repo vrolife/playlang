@@ -6,7 +6,7 @@ from playlang.printer import Printer
 
 
 def _generate(parser, file, prefix):
-    scan_info = parser.__scan_info__  # type: dict
+    scan_info = parser.__scanners__  # type: dict
     p = Printer(file)
     p + '// generated code'
     p + 'import { TokenReader, SyntaxError, create_scanner } from "./playlang.js"'
@@ -17,13 +17,9 @@ def _generate(parser, file, prefix):
 
     next_tid = 1
 
-    p + f'const __EOF__ = {next_tid}'  # nopep8
-    show_name[next_tid] = parser.__eof_token__.show_name
-    next_tid += 1
-
     all_tokens = set()
-    for _, tokens in scan_info.items():
-        for token in tokens:
+    for _, scanner in scan_info.items():
+        for token in scanner.tokens:
             all_tokens.add(token)
 
     all_tokens = list(all_tokens)
@@ -53,8 +49,8 @@ def _generate(parser, file, prefix):
 
     p + ''
     p < 'const capture = {'
-    for context, tokens in scan_info.items():
-        for token in tokens:
+    for context, scanner in scan_info.items():
+        for token in scanner.tokens:
             if token.capture:
                 pattern, discard, fullname = map(
                     token.data.get, ('pattern', 'discard', 'fullname'))
@@ -67,17 +63,20 @@ def _generate(parser, file, prefix):
     regexps = {}
     p + ''
     p < 'const actions = {'
-    for context, tokens in scan_info.items():
+    for context, scanner in scan_info.items():
         buf = []
         group = 1
 
         p < f'"{context}": {{'
-        for token in tokens:
+        for token in scanner.tokens:
             action = token.data.get('javascript', 'return ctx.text')
             pattern, discard, fullname = map(
                 token.data.get, ('pattern', 'discard', 'fullname'))
 
             if token.capture:
+                continue
+
+            if token.is_eof:
                 continue
 
             if pattern is None:

@@ -1,5 +1,6 @@
 import re
-from playlang.classes import Terminal, Location, TokenValue, StaticField
+from typing import List, Dict
+from playlang.classes import Terminal, Location, TokenValue, StaticField, Scanner
 
 
 class TrailingJunk(Exception):
@@ -14,22 +15,31 @@ class ContextError(Exception):
     pass
 
 
-class Scanner:
+class Tokenizer:
     def __init__(self, clazz, default_action):
         self.regexps = {}
+        self._eof_tokens = {}
         self._default_action = default_action
         self._actions = {}
         self._capture = {}
 
         if isinstance(clazz, dict):
-            scan_info = clazz
+            scanners = clazz
         else:
-            scan_info = clazz.__scan_info__
+            scanners = clazz.__scanners__
 
-        for context, tokens in scan_info.items():
-            for token in tokens:
+        scanners: Dict[str, Scanner]
+
+        for context, scanner in scanners.items():
+            self._eof_tokens[context] = scanner.eof_token
+
+            for token in scanner.tokens:
                 if token.capture:
                     self._capture[context] = self._convert(token)
+                    continue
+
+                if token.is_eof:
+                    self._actions[token.fullname] = self._convert(token)
                     continue
 
                 if token.pattern is None:
@@ -45,9 +55,9 @@ class Scanner:
 
                 self._actions[token.fullname] = self._convert(token)
 
-        for context, tokens in scan_info.items():
+        for context, scanner in scanners.items():
             pairs = []
-            for token in tokens:
+            for token in scanner.tokens:
                 pairs.append((token.fullname, token.data.get('pattern')))
 
             self.regexps[context] = re.compile(
@@ -78,7 +88,7 @@ class Scanner:
 
         return action_wrapper
 
-    def __call__(self, string, filename='<memory>', ignore_tailing=False):
+    def __call__(self, string, filename='<memory>', ignore_tailing=False, eof_stop=False):
         location = Location(filename=filename)
         stack = []
         leave = False
@@ -86,10 +96,11 @@ class Scanner:
         this = self
 
         class Context:
-            def __init__(self, name, regexp, value):
+            def __init__(self, name, regexp, value, end_of_file):
                 self.name = name
                 self._regexp = regexp
                 self._value = value
+                self._end_of_file = end_of_file
                 self.text = None
 
             def __repr__(self):
@@ -117,7 +128,7 @@ class Scanner:
 
             def enter(self, name, value=None):
                 nonlocal stack
-                stack.append(Context(name, this.regexps[name], value))
+                stack.append(Context(name, this.regexps[name], value, this._eof_tokens[name]))
                 return self
 
             def leave(self):
@@ -128,7 +139,7 @@ class Scanner:
                 return self
 
         stack.append(
-            Context('__default__', self.regexps['__default__'], None))
+            Context('__default__', self.regexps['__default__'], None, self._eof_tokens['__default__']))
 
         pos = 0
         while True:
@@ -140,6 +151,14 @@ class Scanner:
                         yield self._capture[ctx.name](ctx)
                     stack.pop()
                     ctx = stack[-1]
+
+                # is EOF
+                if pos == len(string):
+                    ctx.text = '__EOF__'
+                    yield self._actions[ctx._end_of_file.fullname](ctx)
+                    if eof_stop:
+                        break
+                    continue
 
                 m = ctx._regexp.match(string, pos)
                 if m is None:
@@ -155,7 +174,7 @@ class Scanner:
             raise TrailingJunk(location)
 
 
-class StaticScanner(StaticField):
+class StaticTokenizer(StaticField):
     def __init__(self, default_action=None):
         self._default_action = default_action
 
@@ -163,4 +182,4 @@ class StaticScanner(StaticField):
         pass
 
     def create(self, parser):
-        return Scanner(parser, default_action=self._default_action)
+        return Tokenizer(parser, default_action=self._default_action)

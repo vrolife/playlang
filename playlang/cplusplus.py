@@ -9,7 +9,7 @@ from playlang.printer import Printer
 
 
 def _generate_typedef(cls, args):
-    scan_info = cls.__scan_info__  # type: dict
+    scan_info = cls.__scanners__  # type: dict
     p = Printer(args.typedef)
     p + '// generated code'
     p + f'#ifndef __{args.namespace}_typedef_hpp__'
@@ -116,7 +116,7 @@ protected:
 
 
 def _generate_flex(cls, args):
-    scan_info = cls.__scan_info__  # type: dict
+    scan_info = cls.__scanners__  # type: dict
     p = Printer(args.flex)
     p + '/* generated code */'
     p + f"""
