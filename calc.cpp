@@ -1,8 +1,10 @@
 #include <cassert>
 #include <sstream>
 
+#ifdef PLAYLANG_LEXER_FLEX
 #include "calc_parser.hpp"
 #include "calc_typedef.hpp"
+#endif
 
 using namespace calc;
 

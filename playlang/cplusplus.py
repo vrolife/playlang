@@ -14,7 +14,7 @@ def _generate_typedef(cls, args):
     p + '// generated code'
     p + f'#ifndef __{args.namespace}_typedef_hpp__'
     p + f'#define __{args.namespace}_typedef_hpp__'
-    p + f'#include "playlang.hpp"'
+    p + f'#include "playlang/playlang.hpp"'
     p + f'#include "{args.include}"'
     p + f'\nnamespace {args.namespace} {{\n'
 
@@ -120,7 +120,7 @@ def _generate_flex(cls, args):
     p + '/* generated code */'
     p + f"""
 %{{
-#include "playlang.hpp"
+#include "playlang/playlang.hpp"
 #include "{args.namespace}_typedef.hpp"
 
 using namespace playlang;
@@ -186,7 +186,6 @@ def _generate_parser(cls, args):
     p + '// generated code'
     p + f'#ifndef __{args.namespace}_parser_hpp__'
     p + f'#define __{args.namespace}_parser_hpp__'
-    p + f'#include "playlang.hpp"'
     p + f'#include "{args.namespace}_typedef.hpp"'
     p + ''
     p + f'namespace {args.namespace} {{'

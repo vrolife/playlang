@@ -13,7 +13,7 @@ add_custom_command(
     DEPENDS ${CMAKE_SOURCE_DIR}/test_py.py
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/calc.py 
-        --namespace calc 
+        --namespace calc
         --include calc.hpp
         --typedef ${CMAKE_CURRENT_BINARY_DIR}/calc_typedef.hpp 
         --parser ${CMAKE_CURRENT_BINARY_DIR}/calc_parser.hpp
@@ -25,10 +25,13 @@ add_custom_command(
 )
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/cpp)
-add_executable(clac 
-    cpp/calc.cpp
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+add_executable(calc
+    calc.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/calc_tokenizer.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/calc_parser.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/calc_typedef.hpp
 )
+target_compile_definitions(calc PRIVATE -DPLAYLANG_LEXER_FLEX=1)

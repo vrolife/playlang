@@ -3,7 +3,7 @@
 
 #include <unordered_map>
 
-#include "playlang.hpp"
+#include "playlang/playlang.hpp"
 
 namespace calc {
 using namespace playlang;
@@ -37,7 +37,7 @@ struct STRING_CHAR : public Token<void, true> {
     STRING_CHAR(Tokenizer& tok) 
     :Token<void, true>() 
     {
-        tok.value().template as<STRING>().value().append(tok.text());
+        tok.value().template as<STRING>().value().append((std::string)tok);
     }
 };
 
