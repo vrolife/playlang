@@ -30,12 +30,12 @@ class Tokenizer:
 
         scanners: Dict[str, Scanner]
 
-        for context, scanner in scanners.items():
-            self._eof_tokens[context] = scanner.eof_token
+        for contition, scanner in scanners.items():
+            self._eof_tokens[contition] = scanner.eof_token
 
             for token in scanner.tokens:
                 if token.capture:
-                    self._capture[context] = self._convert(token)
+                    self._capture[contition] = self._convert(token)
                     continue
 
                 if token.is_eof:
@@ -55,12 +55,12 @@ class Tokenizer:
 
                 self._actions[token.fullname] = self._convert(token)
 
-        for context, scanner in scanners.items():
+        for contition, scanner in scanners.items():
             pairs = []
             for token in scanner.tokens:
                 pairs.append((token.fullname, token.data.get('pattern')))
 
-            self.regexps[context] = re.compile(
+            self.regexps[contition] = re.compile(
                 '|'.join([f'(?P<{n}>{r})' for n, r in pairs]))
 
     def _convert(self, token: Terminal):

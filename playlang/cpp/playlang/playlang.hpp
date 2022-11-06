@@ -8,6 +8,8 @@
 #include <tuple>
 #include <utility>
 
+#define PLAYLANG_LEXER_FLEX 1
+
 #if defined(PLAYLANG_LEXER_FLEX)
 
 #ifndef yyFlexLexerOnce

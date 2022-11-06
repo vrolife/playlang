@@ -367,7 +367,7 @@ class Start:
     def __init__(self, symbol: Symbol):
         self.symbol = symbol
 
-
+# start condition
 class Scanner:
     def __init__(self, *tokens, name='__default__', capture: Terminal = None):
         self.tokens = tokens

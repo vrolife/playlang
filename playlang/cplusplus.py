@@ -26,21 +26,21 @@ def _generate_typedef(cls, args):
 
     captures = []
 
-    all_contexts = list()
+    all_start_conditions = list()
     all_tokens = set()
     eof_token = None
-    for context, scanner in scan_info.items():
-        if context == '__default__':
+    for condition, scanner in scan_info.items():
+        if condition == '__default__':
             eof_token = scanner.eof_token
         else:
-            all_contexts.append(f"    static const int {context};\n")
+            all_start_conditions.append(f"    static const int {condition};\n")
 
         for token in scanner.tokens:
             discard, fullname = map(
                 token.data.get, ('discard', 'fullname'))
             all_tokens.add(token)
             if token.capture:
-                captures.append(f'        if ({context} == ctx) {{ return {{ {str(discard).lower()}, TokenValue{{ this->location(), std::move(val), TID_{fullname} }} }}; }}')
+                captures.append(f'        if ({condition} == ctx) {{ return {{ {str(discard).lower()}, TokenValue{{ this->location(), std::move(val), TID_{fullname} }} }}; }}')
 
     all_tokens = list(all_tokens)
     all_tokens.sort(key=lambda t: t.fullname)
@@ -64,19 +64,22 @@ def _generate_typedef(cls, args):
         types.append(token.name)
     for symbol in cls.__symbols__:
         types.append(symbol.name)
-    types.append('__EOF__')
+
     type_lines = [f'\n/* {i} */ \t{n}' for i,n in enumerate(types)]
 
-    p + f"""
+    if '__EOF__' == eof_token.name:
+        p + f"""
 struct __EOF__ : public playlang::Token<void> {{
     template<typename C>
     explicit __EOF__(C& ctx) {{}};
     __EOF__() = default;
 }};
+"""
 
+    p + f"""
 struct __START__ : public playlang::Symbol<typename {cls.__start_symbol__.name}::ValueType> {{
     typedef typename {cls.__start_symbol__.name}::ValueType ResultType;
-    __START__({cls.__start_symbol__.name}& s, __EOF__& _) 
+    __START__({cls.__start_symbol__.name}& s, {eof_token.name}& _) 
     : playlang::Symbol<typename {cls.__start_symbol__.name}::ValueType>(std::move(s.value()))
     {{ }}
 }};
@@ -95,10 +98,10 @@ public:
 
     constexpr static int TokenID_EOF = TID_{eof_token.fullname};
     constexpr static int TokenID_START = TID___START__;
-    typedef struct __EOF__ EOF_Type;
+    typedef struct {eof_token.name} EOF_Type;
     typedef struct __START__ START_Type;
 
-{"".join(all_contexts)}
+{"".join(all_start_conditions)}
     using playlang::TokenizerBase<TokenValue>::TokenizerBase;
 
 protected:
@@ -132,12 +135,12 @@ using namespace playlang;
 
 %option c++ noyywrap
 """
-    all_contexts = []
+    all_conditions = []
     patterns = []
-    for context, scanner in scan_info.items():
-        if context != '__default__':
-            p + f'%x CONTEXT_ID_{context}'
-            all_contexts.append(context)
+    for condition, scanner in scan_info.items():
+        if condition != '__default__':
+            p + f'%x CONDITION_{condition}'
+            all_conditions.append(condition)
 
         for token in scanner.tokens:
             pattern, discard, fullname = map(
@@ -161,10 +164,10 @@ using namespace playlang;
     this->step ();
 %}}
 """
-    for context, scanner in scan_info.items():
+    for condition, scanner in scan_info.items():
         group = ''
-        if context != '__default__':
-            group = f'<CONTEXT_ID_{context}>'
+        if condition != '__default__':
+            group = f'<CONDITION_{condition}>'
         for token in scanner.tokens:
             if token.capture:
                 continue
@@ -173,13 +176,16 @@ using namespace playlang;
             code = f'return {{ {str(bool(discard)).lower()}, {args.namespace}::TokenValue{{this->location(), VariantValueType{{{token.name}{{*this}}}}, TID_{fullname}}} }};'
             pattern_name = f'{{{fullname}}}'
             if token.is_eof:
-                pattern_name = '<<EOF>>'
-            p + f'{group}{pattern_name}\t {code}'
+                if condition == '__default__':
+                    pattern_name = '<INITIAL><<EOF>>'
+                else:
+                    pattern_name = '<<EOF>>'
+            p + f'{group}{pattern_name}\t {{{code}}}'
 
     p + "%%"
 
-    for c in all_contexts:
-        p + f'const int {args.namespace}::Tokenizer::{c} = CONTEXT_ID_{c};'
+    for c in all_conditions:
+        p + f'const int {args.namespace}::Tokenizer::{c} = CONDITION_{c};'
 
 def _generate_parser(cls, args):
     p = Printer(args.parser)
@@ -305,3 +311,8 @@ def generate(cls, argv=None):
         args.flex.close()
     if args.typedef is not sys.stdout:
         args.typedef.close()
+
+if __name__ == '__main__':
+    import pathlib
+    path = pathlib.Path(__file__)
+    print(path.parent / 'cpp')

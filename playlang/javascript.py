@@ -49,13 +49,13 @@ def _generate(parser, file, prefix):
 
     p + ''
     p < 'const capture = {'
-    for context, scanner in scan_info.items():
+    for condition, scanner in scan_info.items():
         for token in scanner.tokens:
             if token.capture:
                 pattern, discard, fullname = map(
                     token.data.get, ('pattern', 'discard', 'fullname'))
                 action = token.data.get('javascript', 'return ctx.text')
-                p + f'"{context}": [{fullname}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'  # nopep8
+                p + f'"{condition}": [{fullname}, {bool(discard).numerator}, (ctx) => {{ {action} }}],'  # nopep8
     p > '}'
 
     r = re.compile(r'(?:[^\\]|^)\(')
@@ -63,11 +63,11 @@ def _generate(parser, file, prefix):
     regexps = {}
     p + ''
     p < 'const actions = {'
-    for context, scanner in scan_info.items():
+    for condition, scanner in scan_info.items():
         buf = []
         group = 1
 
-        p < f'"{context}": {{'
+        p < f'"{condition}": {{'
         for token in scanner.tokens:
             action = token.data.get('javascript', 'return ctx.text')
             pattern, discard, fullname = map(
@@ -87,12 +87,12 @@ def _generate(parser, file, prefix):
             group += len(r.findall(pattern)) + 1
         p > '},'
 
-        regexps[context] = '|'.join(buf)
+        regexps[condition] = '|'.join(buf)
     p > '} // actions'
     p + ''
     p < 'const regexps = {'
-    for context, _ in scan_info.items():
-        p + f'"{context}": /{regexps[context]}/g,'
+    for condition, _ in scan_info.items():
+        p + f'"{condition}": /{regexps[condition]}/g,'
     p > '}'
 
     p + f'export const {prefix}scan = create_scanner(actions, regexps, capture)'

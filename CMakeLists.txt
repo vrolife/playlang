@@ -26,7 +26,7 @@ add_custom_command(
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/playlang/cpp)
 
 add_executable(calc
     calc.cpp
@@ -34,4 +34,3 @@ add_executable(calc
     ${CMAKE_CURRENT_BINARY_DIR}/calc_parser.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/calc_typedef.hpp
 )
-target_compile_definitions(calc PRIVATE -DPLAYLANG_LEXER_FLEX=1)
