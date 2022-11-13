@@ -328,6 +328,7 @@ def Token(pattern=None,
           discard=False,
           ignorable=False,
           is_eof=False,
+          trailing=None,
           **kwargs) -> TokenInfo:
     """Define a token
 
@@ -348,6 +349,7 @@ def Token(pattern=None,
     ti.data['discard'] = discard
     ti.data['ignorable'] = ignorable
     ti.data['is_eof'] = is_eof
+    ti.data['trailing'] = trailing
     ti.data.update(kwargs)
     return ti
 

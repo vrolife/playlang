@@ -56,12 +56,18 @@ class Tokenizer:
                 self._actions[token.fullname] = self._convert(token)
 
         for contition, scanner in scanners.items():
-            pairs = []
+            patterns = []
             for token in scanner.tokens:
-                pairs.append((token.fullname, token.data.get('pattern')))
+                pattern, trailing = map(token.data.get, ('pattern', 'trailing'))
 
-            self.regexps[contition] = re.compile(
-                '|'.join([f'(?P<{n}>{r})' for n, r in pairs]))
+                if trailing is None:
+                    trailing = ""
+                else:
+                    trailing = f'(?={trailing})'
+
+                patterns.append(f'(?P<{token.fullname}>{pattern}){trailing}')
+
+            self.regexps[contition] = re.compile('|'.join(patterns))
 
     def _convert(self, token: Terminal):
         action, discard = map(token.data.get, ('action', 'discard'))

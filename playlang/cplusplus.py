@@ -171,15 +171,18 @@ using namespace playlang;
         for token in scanner.tokens:
             if token.capture:
                 continue
-            pattern, discard, fullname = map(
-                token.data.get, ('pattern', 'discard', 'fullname'))
+            pattern, discard, fullname, trailing = map(
+                token.data.get, ('pattern', 'discard', 'fullname', 'trailing'))
             code = f'return {{ {str(bool(discard)).lower()}, {args.namespace}::TokenValue{{this->location(), VariantValueType{{{token.name}{{*this}}}}, TID_{fullname}}} }};'
-            pattern_name = f'{{{fullname}}}'
             if token.is_eof:
                 if condition == '__default__':
                     pattern_name = '<INITIAL><<EOF>>'
                 else:
                     pattern_name = '<<EOF>>'
+            else:
+                pattern_name = f'{{{fullname}}}'
+                if trailing is not None:
+                    pattern_name += '/'+trailing
             p + f'{group}{pattern_name}\t {{{code}}}'
 
     p + "%%"
