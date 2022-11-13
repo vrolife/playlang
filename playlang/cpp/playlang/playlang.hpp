@@ -290,6 +290,10 @@ public:
 
     operator std::string() const { return { text(), text_length() }; }
 
+    char at(size_t idx) const {
+        return text()[idx];
+    }
+
     TokenValue read()
     {
         while (true) {
