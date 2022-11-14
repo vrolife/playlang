@@ -601,6 +601,52 @@ class TestList(unittest.TestCase):
         lst = compiler.parse_string('')
         self.assertListEqual(lst, [])
 
+class ParserTrailingContext(metaclass=Parser):
+    DIGITS = Token(r'\d')
+    DIGITS2 = Token(r'3', trailing=r'4', action=lambda ctx: 'x')
+    NEWLINE = Token(r'\n+',
+                    discard=True,
+                    action=lambda ctx: ctx.lines(len(ctx.text)))
+    WHITE = Token(r'\s+', discard=True)
+    MISMATCH = Token(r'.', action=lambda ctx: throw(MismatchError, ctx.text))
+
+    _ = Scanner(DIGITS2, DIGITS, NEWLINE, WHITE, MISMATCH)
+
+    @Rule(DIGITS)
+    @Rule(DIGITS2)
+    def NUMBER(self, val):
+        return val
+
+    @Rule()
+    def EXPR(self):
+        return []
+
+    @Rule(NUMBER)
+    def EXPR(self, val):
+        return [val]
+
+    @Rule(EXPR, NUMBER)
+    def EXPR(self, expr, num):
+        expr.append(num)
+        return expr
+
+    _ = Start(EXPR)
+
+    def __init__(self):
+        self._tokenizer = Tokenizer(
+            ParserTrailingContext, default_action=lambda ctx: ctx.step(len(ctx.text)))
+
+    def parse_string(self, string):
+        return ParserTrailingContext.parse(self._tokenizer(string), context=self)
+
+
+class TestTrailingContext(unittest.TestCase):
+    def test_trailing_context(self):
+        compiler = ParserTrailingContext()
+        lst = compiler.parse_string('234')
+        self.assertListEqual(lst, ['2', 'x', '4'])
+
+
 # dragon book. 4.18
 class ParserList2(metaclass=Parser):
     DIGITS = Token(r'\d')
