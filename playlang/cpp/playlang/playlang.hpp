@@ -8,18 +8,6 @@
 #include <tuple>
 #include <utility>
 
-#define PLAYLANG_LEXER_FLEX 1
-
-#if defined(PLAYLANG_LEXER_FLEX)
-
-#ifndef yyFlexLexerOnce
-#include <FlexLexer.h>
-#endif
-
-#else
-#error "Unsupported lexer"
-#endif
-
 #include "playlang/variant.hpp"
 
 namespace playlang {
@@ -72,13 +60,6 @@ T build(Context& ctx, Array&& a) {
 }
 
 } // namespace detail
-
-#if defined(PLAYLANG_LEXER_RE2C)
-class Re2cLexer
-{
-
-};
-#endif
 
 struct Location {
     int _line_number;
@@ -232,109 +213,6 @@ public:
         push({ _tokenizer.location(),
             ValueType { detail::build<T, Context, Tuple>(ctx, args) }, token });
     }
-};
-
-template <typename TokenValue>
-class TokenizerBase
-#if defined(PLAYLANG_LEXER_FLEX)
-: protected yyFlexLexer 
-#elif defined(PLAYLANG_LEXER_RE2C)
-: protected Re2cLexer
-#endif
-{
-public:
-    typedef TokenValue TokenValueType;
-    typedef typename TokenValue::ValueType ValueType;
-
-#if defined(PLAYLANG_LEXER_FLEX)
-    TokenizerBase(const std::string& filename, std::istream& in,
-        std::ostream& out)
-        : yyFlexLexer(in, out)
-        , _tok_filename(filename)
-    {
-        init();
-    }
-
-    explicit TokenizerBase(const std::string& filename, std::istream* in = 0,
-        std::ostream* out = 0)
-        : yyFlexLexer(in, out)
-        , _tok_filename(filename)
-    {
-        init();
-    }
-#endif
-
-    Location& location() { return _tok_location; }
-
-    void step(int n = 1) { _tok_location.step(n); }
-
-    void lines(int n = 1) { _tok_location.lines(n); }
-
-    void leave()
-    {
-        this->yy_pop_state();
-        _tok_leave_flag = true;
-    }
-
-    void enter(int ctx_id, ValueType&& value)
-    {
-        _tok_stack.emplace(ctx_id, std::move(value));
-        this->yy_push_state(ctx_id);
-    }
-
-    void enter(int ctx_id)
-    {
-        _tok_stack.emplace(ctx_id, ValueType {});
-        this->yy_push_state(ctx_id);
-    }
-
-    operator std::string() const { return { text(), text_length() }; }
-
-    char at(size_t idx) const {
-        return text()[idx];
-    }
-
-    TokenValue read()
-    {
-        while (true) {
-            if (_tok_leave_flag) {
-                _tok_leave_flag = false;
-
-                auto& val = _tok_stack.top();
-                auto tv = capture(val.first, val.second);
-
-                _tok_stack.pop();
-                assert(_tok_stack.size() > 0);
-
-                if (not tv.first) { // not discard
-                    return std::move(tv.second);
-                }
-            }
-
-            auto tv = read_one();
-            if (not tv.first) { // not discard
-                return std::move(tv.second);
-            }
-        }
-    }
-
-    ValueType& value() { return _tok_stack.top().second; }
-
-private:
-#if defined(PLAYLANG_LEXER_FLEX)
-    const char* text() const { return YYText(); }
-    size_t text_length() const { return YYLeng(); }
-#endif
-
-protected:
-    std::stack<std::pair<int, ValueType>> _tok_stack {};
-    bool _tok_leave_flag { false };
-    std::string _tok_filename {};
-    Location _tok_location;
-
-    void init() { _tok_stack.emplace(0, ValueType {}); }
-    virtual std::pair<bool, TokenValue> read_one() = 0;
-    virtual std::pair<bool, TokenValue> capture(int ctx, ValueType&) = 0;
 };
 
 template <typename T>

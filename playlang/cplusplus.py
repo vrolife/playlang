@@ -8,15 +8,64 @@ from playlang.classes import SymbolInfo, TokenInfo, Symbol
 from playlang.printer import Printer
 
 
-def _generate_typedef(cls, args):
+def _generate_tokenizer(cls, args):
     scan_info = cls.__scanners__  # type: dict
-    p = Printer(args.typedef)
+    p = Printer(args.tokenizer)
     p + '// generated code'
-    p + f'#ifndef __{args.namespace}_typedef_hpp__'
-    p + f'#define __{args.namespace}_typedef_hpp__'
+    p + f'#ifndef __{args.namespace}_tokenizer_hpp__'
+    p + f'#define __{args.namespace}_tokenizer_hpp__'
     p + f'#include "playlang/playlang.hpp"'
     p + f'#include "{args.include}"'
-    p + f'\nnamespace {args.namespace} {{\n'
+    p + f"""
+#ifndef PLAYLANG_TOKENIZER_FLEX
+#define PLAYLANG_TOKENIZER_FLEX 1
+#endif
+
+#if defined(PLAYLANG_TOKENIZER_FLEX) && PLAYLANG_TOKENIZER_FLEX
+
+#ifndef yyFlexLexer
+#define yyFlexLexer {args.namespace}FlexLexer
+#endif
+
+#ifndef yyFlexLexerOnce
+#include <FlexLexer.h>
+#endif
+
+#endif
+"""
+    p + f'namespace {args.namespace} {{'
+    p + f"""
+#if defined(PLAYLANG_TOKENIZER_FLEX) && PLAYLANG_TOKENIZER_FLEX
+template <typename TokenValue>
+class TokenizerFlex
+: protected yyFlexLexer
+{{
+public:
+    TokenizerFlex(const std::string& filename, std::istream& in,
+        std::ostream& out)
+        : yyFlexLexer(in, out)
+    {{
+    }}
+
+    explicit TokenizerFlex(const std::string& filename, std::istream* in = 0,
+        std::ostream* out = 0)
+        : yyFlexLexer(in, out)
+    {{
+    }}
+
+    operator std::string() const {{ return {{ text(), text_length() }}; }}
+
+    char at(size_t idx) const {{
+        assert(idx < text_length());
+        return text()[idx];
+    }}
+
+private:
+    const char* text() const {{ return YYText(); }}
+    size_t text_length() const {{ return YYLeng(); }}
+}};
+#endif
+"""
 
     show_name = {}
 
@@ -73,8 +122,7 @@ struct __EOF__ : public playlang::Token<void> {{
     template<typename C>
     explicit __EOF__(C& ctx) {{}};
     __EOF__() = default;
-}};
-"""
+}};"""
 
     p + f"""
 struct __START__ : public playlang::Symbol<typename {cls.__start_symbol__.name}::ValueType> {{
@@ -87,8 +135,14 @@ struct __START__ : public playlang::Symbol<typename {cls.__start_symbol__.name}:
 typedef playlang::Variant<{", ".join(type_lines)}
 > VariantValueType;
 typedef playlang::TokenValue<VariantValueType> TokenValue;
+"""
+    p + f"""
+#if defined(PLAYLANG_TOKENIZER_FLEX) && PLAYLANG_TOKENIZER_FLEX
+typedef TokenizerFlex<TokenValue> TokenizerBase;
+#endif
 
-class Tokenizer : public playlang::TokenizerBase<TokenValue>
+class Tokenizer
+: public TokenizerBase
 {f', public {args.statefull_tokenizer}' if args.statefull_tokenizer else ''}
 {{
     friend class playlang::TokenReader<Tokenizer>;
@@ -96,18 +150,75 @@ public:
     typedef TokenValue TokenValueType;
     typedef typename TokenValue::ValueType ValueType;
 
-    constexpr static int TokenID_EOF = TID_{eof_token.fullname};
     constexpr static int TokenID_START = TID___START__;
-    typedef struct {eof_token.name} EOF_Type;
     typedef struct __START__ START_Type;
 
 {"".join(all_start_conditions)}
-    using playlang::TokenizerBase<TokenValue>::TokenizerBase;
+
+    template<typename... Args>
+    Tokenizer(Args&&... args) : TokenizerBase(std::forward<Args>(args)...)
+    {{
+        _tok_stack.emplace(0, ValueType {{}});
+    }}
+
+    ValueType& value() {{ return _tok_stack.top().second; }}
+
+    TokenValue read()
+    {{
+        while (true) {{
+            if (_tok_leave_flag) {{
+                _tok_leave_flag = false;
+
+                auto& val = _tok_stack.top();
+                auto tv = capture(val.first, val.second);
+
+                _tok_stack.pop();
+                assert(_tok_stack.size() > 0);
+
+                if (not tv.first) {{ // not discard
+                    return std::move(tv.second);
+                }}
+            }}
+
+            auto tv = this->read_one();
+            if (not tv.first) {{ // not discard
+                return std::move(tv.second);
+            }}
+        }}
+    }}
+
+    Location& location() {{ return _tok_location; }}
+
+    void step(int n = 1) {{ _tok_location.step(n); }}
+
+    void lines(int n = 1) {{ _tok_location.lines(n); }}
+
+    void leave()
+    {{
+        this->yy_pop_state();
+        _tok_leave_flag = true;
+    }}
+
+    void enter(int ctx_id, ValueType&& value)
+    {{
+        _tok_stack.emplace(ctx_id, std::move(value));
+        this->yy_push_state(ctx_id);
+    }}
+
+    void enter(int ctx_id)
+    {{
+        _tok_stack.emplace(ctx_id, ValueType {{}});
+        this->yy_push_state(ctx_id);
+    }}
 
 protected:
-    std::pair<bool, TokenValue> read_one() override;
+    std::stack<std::pair<int, ValueType>> _tok_stack {{}};
+    bool _tok_leave_flag {{ false }};
+    Location _tok_location;
 
-    std::pair<bool, TokenValue> capture(int ctx, ValueType& val) override {{
+    std::pair<bool, TokenValue> read_one();
+
+    std::pair<bool, TokenValue> capture(int ctx, ValueType& val) {{
 {chr(10).join(captures)}
         return {{true, TokenValue{{}}}};
     }}
@@ -124,16 +235,18 @@ def _generate_flex(cls, args):
     p + f"""
 %{{
 #include "playlang/playlang.hpp"
-#include "{args.namespace}_typedef.hpp"
+#include "{args.namespace}_tokenizer.hpp"
 
 using namespace playlang;
 
 #undef YY_DECL
 #define YY_DECL std::pair<bool, {args.namespace}::TokenValue> {args.namespace}::Tokenizer::read_one()
 #define YY_USER_ACTION  this->step(yyleng);
+
+int {args.namespace}FlexLexer::yylex() {{ abort(); }}
 %}}
 
-%option c++ noyywrap
+%option c++ noyywrap prefix="{args.namespace}"
 """
     all_conditions = []
     patterns = []
@@ -195,7 +308,7 @@ def _generate_parser(cls, args):
     p + '// generated code'
     p + f'#ifndef __{args.namespace}_parser_hpp__'
     p + f'#define __{args.namespace}_parser_hpp__'
-    p + f'#include "{args.namespace}_typedef.hpp"'
+    p + f'#include "{args.namespace}_tokenizer.hpp"'
     p + ''
     p + f'namespace {args.namespace} {{'
 
@@ -292,28 +405,31 @@ def _open_file(fn):
 
 def generate(cls, argv=None): 
     argp = argparse.ArgumentParser()
-    argp.add_argument('--include', required=True, help='header to be include in all generated c++ files')
     argp.add_argument('--namespace', required=True, help='c++ namespace')
-    argp.add_argument('--parser', required=True, help='output file name for parser')
-    argp.add_argument('--flex', required=True, help='output file name for flex. see https://github.com/westes/flex.git')
-    argp.add_argument('--typedef', required=True, help='output file name for type definition')
-    argp.add_argument('--statefull-tokenizer', type=str, default='', help='class name. generated tokenizer will inherit this class')
+    argp.add_argument('--include', required=True, help='A common header file to include in all generated c++ files')
+    argp.add_argument('--parser', required=True, help='output file name of parser')
+    argp.add_argument('--flex', required=False, help='output file name of flex file. see https://github.com/westes/flex.git')
+    argp.add_argument('--tokenizer', required=True, help='output file name of tokenizer')
+    argp.add_argument('--statefull-tokenizer', type=str, default='', help='state class name. generated tokenizer will inherit this class')
+    argp.add_argument('--custom-tokenizer', type=bool, default=False, help='use custom lexer. we use flex lexer by default')
     args = argp.parse_args(argv)
 
     args.parser = _open_file(args.parser)
-    args.flex = _open_file(args.flex)
-    args.typedef = _open_file(args.typedef)
-
     _generate_parser(cls, args)
-    _generate_flex(cls, args)
-    _generate_typedef(cls, args)
+
+    if not args.custom_tokenizer:
+        args.flex = _open_file(args.flex)
+        _generate_flex(cls, args)
+
+    args.tokenizer = _open_file(args.tokenizer)
+    _generate_tokenizer(cls, args)
 
     if args.parser is not sys.stdout:
         args.parser.close()
     if args.flex is not sys.stdout:
         args.flex.close()
-    if args.typedef is not sys.stdout:
-        args.typedef.close()
+    if args.tokenizer is not sys.stdout:
+        args.tokenizer.close()
 
 if __name__ == '__main__':
     import pathlib

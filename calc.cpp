@@ -2,7 +2,7 @@
 #include <sstream>
 
 #include "calc_parser.hpp"
-#include "calc_typedef.hpp"
+#include "calc_tokenizer.hpp"
 
 using namespace calc;
 
