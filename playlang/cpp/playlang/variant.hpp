@@ -166,7 +166,7 @@ public:
         return reinterpret_cast<const T*>(&this->_memory[0]);
     }
 
-    int get_type() const {
+    int type() const {
         return this->_type;
     }
 

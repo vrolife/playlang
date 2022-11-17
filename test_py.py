@@ -98,7 +98,7 @@ class ParserCalc(metaclass=Parser):
     EQUALS = Token(r'=')
 
     _ = Precedence.Left
-    PLUS = Token(r'\+')
+    PLUS = Token(r'\+', show_name='Plus')
     MINUS = Token(r'-')
 
     _ = Precedence.Left

@@ -93,7 +93,7 @@ private:
 
     all_tokens = list(all_tokens)
     all_tokens.sort(key=lambda t: t.fullname)
-
+    
     for token in all_tokens:
         tid = next_tid + (10000 if token.ignorable else 0)
         p + f'#define TID_{token.fullname} {tid}'  # nopep8
@@ -135,7 +135,16 @@ struct __START__ : public playlang::Symbol<typename {cls.__start_symbol__.name}:
 typedef playlang::Variant<{", ".join(type_lines)}
 > VariantValueType;
 typedef playlang::TokenValue<VariantValueType> TokenValue;
+
+inline
+const char* get_token_name(int token) {{
+    switch(token) {{
+{chr(10).join([f'        case {i}: return "{n}";' for i,n in show_name.items()])}
+        default: abort();
+    }}
+}}
 """
+
     p + f"""
 #if defined(PLAYLANG_TOKENIZER_FLEX) && PLAYLANG_TOKENIZER_FLEX
 typedef TokenizerFlex<TokenValue> TokenizerBase;
@@ -381,7 +390,7 @@ public:
 
             p + 'std::ostringstream oss;'
             # p + 'if (lookahead->_location.valid()) { oss << lookahead->location().to_string() << " => "; }'  # nopep8
-            p + f'oss << "unexpected token " << lookahead->token() << "{message}";'
+            p + f'oss << "unexpected token " << get_token_name(lookahead->token()) << "{message}";'
             p + 'throw playlang::SyntaxError(oss.str());'
 
         p >> 'break;'
