@@ -415,6 +415,7 @@ def _open_file(fn):
 def generate(cls, argv=None): 
     argp = argparse.ArgumentParser()
     argp.add_argument('--namespace', required=True, help='c++ namespace')
+    argp.add_argument('--classname', type=str, default='', help='c++ namespace')
     argp.add_argument('--include', required=True, help='A common header file to include in all generated c++ files')
     argp.add_argument('--parser', required=True, help='output file name of parser')
     argp.add_argument('--flex', required=False, help='output file name of flex file. see https://github.com/westes/flex.git')
@@ -422,6 +423,9 @@ def generate(cls, argv=None):
     argp.add_argument('--statefull-tokenizer', type=str, default='', help='state class name. generated tokenizer will inherit this class')
     argp.add_argument('--custom-tokenizer', type=bool, default=False, help='use custom lexer. we use flex lexer by default')
     args = argp.parse_args(argv)
+    
+    if len(args.classname) > 0 and args.classname != cls.__name__:
+        return
 
     args.parser = _open_file(args.parser)
     _generate_parser(cls, args)

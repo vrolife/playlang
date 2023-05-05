@@ -14,38 +14,25 @@ namespace playlang {
 namespace detail {
 
 template<size_t... I>
-struct seq
+struct _index_sequence
 { };
-
-template<size_t... I>
-struct make_seq;
 
 template<size_t N, size_t... I>
-struct make_seq<N, N-1, I...>
-{
-   typedef seq<I..., N-1> type;
-};
+struct _make_index_sequence : _make_index_sequence<N-1, N-1, I...> { };
 
 template<size_t... I>
-struct make_seq<0, 0, I...>
-{
-   typedef seq<I...> type;
-};
-
-template<size_t N, size_t I0, size_t... I>
-struct make_seq<N, I0, I...> : make_seq<N, I0 + 1, I..., I0>
-{ };
+struct _make_index_sequence<0, I...> : _index_sequence<I...> { };
 
 template<typename T, typename Context, typename Tuple, typename Array, size_t... Index>
 typename std::enable_if<not T::Contextful, T>::
-type build_with_args(Context& ctx, Array&& a, seq<Index...>)
+type build_with_args(Context& ctx, Array&& a, _index_sequence<Index...>)
 {
     return T{a[Index].template as<typename std::tuple_element<Index,Tuple>::type>()...};
 }
 
 template<typename T, typename Context, typename Tuple, typename Array, size_t... Index>
 typename std::enable_if<T::Contextful, T>::
-type build_with_args(Context& ctx, Array&& a, seq<Index...>)
+type build_with_args(Context& ctx, Array&& a, _index_sequence<Index...>)
 {
     return T{ctx, a[Index].template as<typename std::tuple_element<Index,Tuple>::type>()...};
 }
@@ -56,7 +43,7 @@ T build(Context& ctx, Array&& a) {
    return build_with_args<T, Context, Tuple>(
        ctx,
        std::forward<Array>(a), 
-       typename make_seq<N, 0>::type{});
+       _make_index_sequence<N>{});
 }
 
 } // namespace detail
