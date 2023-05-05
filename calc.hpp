@@ -1,3 +1,5 @@
+// Copyright (C) 2023 pom@vro.life
+// SPDX-License-Identifier: MIT OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
 #ifndef __calc_hpp__
 #define __calc_hpp__
 
