@@ -14,6 +14,8 @@ from playlang.printer import Printer
 def _generate_tokenizer(cls, args):
     scan_info = cls.__scanners__  # type: dict
     p = Printer(args.tokenizer)
+    p + '''// Copyright (C) 2023 pom@vro.life
+// SPDX-License-Identifier: MIT OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only'''
     p + '// generated code'
     p + f'#ifndef __{args.namespace}_tokenizer_hpp__'
     p + f'#define __{args.namespace}_tokenizer_hpp__'
@@ -243,6 +245,8 @@ protected:
 def _generate_flex(cls, args):
     scan_info = cls.__scanners__  # type: dict
     p = Printer(args.flex)
+    p + '''/* Copyright (C) 2023 pom@vro.life */
+/* SPDX-License-Identifier: MIT OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only */'''
     p + '/* generated code */'
     p + f"""
 %{{
@@ -317,6 +321,8 @@ int {args.namespace}FlexLexer::yylex() {{ abort(); }}
 
 def _generate_parser(cls, args):
     p = Printer(args.parser)
+    p + '''// Copyright (C) 2023 pom@vro.life
+// SPDX-License-Identifier: MIT OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only'''
     p + '// generated code'
     p + f'#ifndef __{args.namespace}_parser_hpp__'
     p + f'#define __{args.namespace}_parser_hpp__'

@@ -11,6 +11,8 @@ from playlang.printer import Printer
 def _generate(parser, file, prefix):
     scan_info = parser.__scanners__  # type: dict
     p = Printer(file)
+    p + '''// Copyright (C) 2023 pom@vro.life
+// SPDX-License-Identifier: MIT OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only'''
     p + '// generated code'
     p + 'import { TokenReader, SyntaxError, create_scanner } from "./playlang.js"'
 
